@@ -1,632 +1,370 @@
-"""관리자 전용 회원 관리 API."""
+"""관리자(인가/RBAC) REST — 회원 권한 부여·회수.
+
+접근 방식 두 가지
+  ① 기계 호출(n8n·회수봇)  : 헤더  X-API-Key: <ADMIN_API_KEY>
+  ② 사람(관리자 페이지)     : JWT(로그인 토큰) + 그 계정의 role == 'admin'
+
+시나리오
+  - 관리자 페이지에서 특정 회원에게 admin 을 '부여'(인가) → 불필요한 과잉권한 발생
+  - 파이썬 회수봇이 허용목록(ADMIN_ALLOWLIST) 밖 admin 을 탐지 → Graylog 신고
+  - Graylog 이벤트 → n8n → 이 API 의 /revoke 를 호출해 실제 '회수'(최소권한 복원)
+  - 회수 시 security_events 에 감사기록(source='privilege-guard') → 대시보드 노출
+"""
 from datetime import datetime, timedelta
 from functools import wraps
 
-from flask import Blueprint, current_app, g, jsonify, request
+from flask import Blueprint, current_app, jsonify, request
 
-from controllers.authz import api_role_required, current_user
-from controllers.gelf import request_src_ip, send_gelf
 from extensions import db
-from models import (
-    ROLE_ADMIN,
-    ROLE_GOLD,
-    ROLE_USER,
-    VALID_ROLES,
-    BlockedIP,
-    Incident,
-    Post,
-    SecurityEvent,
-    User,
-    role_name,
-)
+from models import BlockedIP, Incident, SecurityEvent, User
 
-admin_bp = Blueprint("admin", __name__, url_prefix="/api/admin")
+from .rbac import VALID_ROLES, current_user   # 등급 정의는 rbac 한 곳에서
 
-ROLE_ALIASES = {
-    "user": ROLE_USER,
-    "gold": ROLE_GOLD,
-    "admin": ROLE_ADMIN,
-    "0": ROLE_USER,
-    "1": ROLE_GOLD,
-    "2": ROLE_ADMIN,
-}
+admin_bp = Blueprint('admin', __name__, url_prefix='/api/admin')
+
+# ('user', 'gold', 'admin') — models/user.py 의 ROLE_LEVEL 에서 온다.
+ROLE_CHOICES = '|'.join(VALID_ROLES)
 
 
-def _admin_count(exclude_user_id=None):
-    query = User.query.filter(User.role >= ROLE_ADMIN)
-    if exclude_user_id is not None:
-        query = query.filter(User.id != exclude_user_id)
-    return query.count()
+def _has_valid_key():
+  """X-API-Key 가 ADMIN_API_KEY 와 일치하면 True(비어 있으면 항상 False = fail-closed)."""
+  expected = current_app.config.get('ADMIN_API_KEY', '')
+  return bool(expected) and request.headers.get('X-API-Key', '') == expected
 
 
-def _admin_or_api_key_required(view):
-    """관리자 JWT 또는 n8n용 관리자 API 키 중 하나를 요구한다."""
-
-    @wraps(view)
-    def wrapper(*args, **kwargs):
-        expected_key = current_app.config.get("ADMIN_API_KEY", "")
-        supplied_key = request.headers.get("X-API-Key", "")
-        if expected_key and supplied_key == expected_key:
-            g.security_actor = "apikey"
-            return view(*args, **kwargs)
-        if supplied_key:
-            # S6: 키를 내밀었는데 틀렸다 = 추측 시도. 관리자 화면(쿠키 로그인)은
-            # 키를 보내지 않으므로 여기에 걸리지 않는다. 키 값은 남기지 않는다.
-            send_gelf(
-                f"admin api auth failed {request.path[:80]}",
-                rule="admin-auth-fail",
-                src_ip=request_src_ip(),
-                path=request.path[:120],
-                code=401,
-            )
-
-        user = current_user()
-        if user is None:
-            return (
-                jsonify(
-                    {
-                        "msg": "로그인이 필요합니다.",
-                        "reason": "unauthenticated",
-                        "required_role": ROLE_ADMIN,
-                        "required_role_name": role_name(ROLE_ADMIN),
-                        "current_role": None,
-                    }
-                ),
-                401,
-            )
-        if not user.is_admin:
-            return (
-                jsonify(
-                    {
-                        "msg": "관리자 등급 이상만 접근할 수 있습니다.",
-                        "reason": "insufficient_role",
-                        "required_role": ROLE_ADMIN,
-                        "required_role_name": role_name(ROLE_ADMIN),
-                        "current_role": user.role,
-                    }
-                ),
-                403,
-            )
-        g.security_actor = user.username
-        return view(*args, **kwargs)
-
-    return wrapper
+def _current_admin_user():
+  """JWT 가 있고 그 계정이 admin 이면 User, 아니면 None."""
+  user = current_user()
+  return user if (user and user.is_admin) else None
 
 
-def _security_actor():
-    return getattr(g, "security_actor", "unknown")
+def admin_required(fn):
+  """유효한 관리자 키(기계) 또는 admin JWT(사람)면 통과. 아니면 401/403."""
+  @wraps(fn)
+  def wrapper(*args, **kwargs):
+    if _has_valid_key():
+      request.actor = 'apikey'
+      return fn(*args, **kwargs)
+    admin = _current_admin_user()
+    if admin:
+      request.actor = admin.username
+      return fn(*args, **kwargs)
+    return jsonify({'msg': '관리자 인가가 필요합니다(X-API-Key 또는 admin 로그인).'}), 401
+  return wrapper
 
 
-def _as_nonnegative_int(value, field_name, default=0):
-    if value in (None, ""):
-        return default, None
-    try:
-        parsed = int(value)
-    except (TypeError, ValueError):
-        return None, f"{field_name}은 숫자여야 합니다."
-    if parsed < 0:
-        return None, f"{field_name}은 0 이상이어야 합니다."
-    return parsed, None
+def _allowlist(param=None):
+  """정책 허용목록. 쿼리/바디로 넘기면 우선, 없으면 config(.env)."""
+  if param:
+    return [u.strip() for u in param.split(',') if u.strip()]
+  return current_app.config.get('ADMIN_ALLOWLIST', [])
 
 
-def _role_value(value):
-    if isinstance(value, int) and value in VALID_ROLES:
-        return value
-    return ROLE_ALIASES.get(str(value or "").strip().lower())
-
-
-def _allowlist(value=None):
-    if value:
-        return [username.strip() for username in value.split(",") if username.strip()]
-    return current_app.config.get("ADMIN_ALLOWLIST", [])
-
-
-@admin_bp.get("/users")
-@_admin_or_api_key_required
+@admin_bp.route('/users', methods=['GET'])
+@admin_required
 def list_users():
-    """회원 목록을 등급 높은 순으로 불러온다."""
-    query = User.query
-    requested_role = request.args.get("role")
-    if requested_role is not None:
-        role = _role_value(requested_role)
-        if role is None:
-            return jsonify({"msg": "role 값이 올바르지 않습니다."}), 400
-        query = query.filter_by(role=role)
-    users = query.order_by(User.role.desc(), User.id.asc()).all()
-    post_counts = dict(
-        db.session.query(Post.author_id, db.func.count(Post.id))
-        .group_by(Post.author_id)
-        .all()
-    )
-    me = current_user()
-    return jsonify(
-        {
-            "count": len(users),
-            "users": [
-                {
-                    **user.to_dict(),
-                    "post_count": post_counts.get(user.id, 0),
-                    "is_me": bool(me and user.id == me.id),
-                }
-                for user in users
-            ],
-            "roles": [
-                {"value": value, "name": role_name(value)} for value in VALID_ROLES
-            ],
-            "me": me.to_dict() if me else None,
-        }
-    )
+  """회원 목록 + 역할. ?role=admin 으로 필터."""
+  role = request.args.get('role')
+  q = User.query
+  if role in VALID_ROLES:
+    q = q.filter_by(role=role)
+  rows = q.order_by(User.id.asc()).all()
+  return jsonify({'count': len(rows), 'users': [u.to_dict() for u in rows]})
 
 
-@admin_bp.patch("/users/<int:user_id>")
-@api_role_required(ROLE_ADMIN)
-def update_user(user_id):
-    """회원 등급을 수정한다."""
-    me = current_user()
-    target = db.session.get(User, user_id)
-    if target is None:
-        return jsonify({"msg": "존재하지 않는 회원입니다."}), 404
-
-    data = request.get_json(silent=True) or {}
-    if "role" not in data:
-        return jsonify({"msg": "role 값이 필요합니다."}), 400
-    try:
-        new_role = int(data["role"])
-    except (TypeError, ValueError):
-        return jsonify({"msg": "role은 숫자여야 합니다."}), 400
-    if new_role not in VALID_ROLES:
-        return jsonify({"msg": f"role은 {list(VALID_ROLES)} 중 하나여야 합니다."}), 400
-
-    # 스스로 강등해 관리자 화면에서 잠기는 사고를 막는다.
-    if target.id == me.id and new_role < ROLE_ADMIN:
-        return jsonify({"msg": "자기 자신의 등급은 내릴 수 없습니다."}), 400
-    # 마지막 관리자가 사라지면 아무도 회원 관리를 할 수 없게 된다.
-    if target.role >= ROLE_ADMIN and new_role < ROLE_ADMIN and _admin_count(target.id) == 0:
-        return jsonify({"msg": "마지막 관리자는 강등할 수 없습니다."}), 400
-
-    previous = target.role_name
-    target.role = new_role
-    target.role_granted_by = me.username
-    target.role_granted_at = datetime.now()
-    target.role_reason = str(data.get("reason") or "관리자 화면에서 등급 변경")[:200]
-    db.session.commit()
-    return jsonify(
-        {
-            "msg": f"{target.username}님의 등급을 {previous} → {target.role_name}(으)로 변경했습니다.",
-            "user": target.to_dict(),
-        }
-    )
+@admin_bp.route('/violations', methods=['GET'])
+@admin_required
+def list_violations():
+  """정책 위반(허용목록 밖 admin) 목록. 회수봇이 참고용으로 쓸 수 있다.
+  ?allowlist=lsy,instructor 로 기준을 넘기면 그걸 우선 적용."""
+  allow = _allowlist(request.args.get('allowlist'))
+  admins = User.query.filter_by(role='admin').all()
+  bad = [u for u in admins if u.username not in allow]
+  return jsonify({
+      'allowlist': allow,
+      'count': len(bad),
+      'violations': [u.to_dict() for u in bad],
+  })
 
 
-@admin_bp.delete("/users/<int:user_id>")
-@api_role_required(ROLE_ADMIN)
-def delete_user(user_id):
-    """회원을 삭제한다. 남은 게시글도 함께 정리한다."""
-    me = current_user()
-    target = db.session.get(User, user_id)
-    if target is None:
-        return jsonify({"msg": "존재하지 않는 회원입니다."}), 404
-    if target.id == me.id:
-        return jsonify({"msg": "자기 자신은 삭제할 수 없습니다."}), 400
-    if target.role >= ROLE_ADMIN and _admin_count(target.id) == 0:
-        return jsonify({"msg": "마지막 관리자는 삭제할 수 없습니다."}), 400
-
-    # 게시글은 author_id 외래키로 묶여 있어 먼저 지워야 한다.
-    removed_posts = Post.query.filter_by(author_id=target.id).delete()
-    username = target.username
-    db.session.delete(target)
-    db.session.commit()
-    return jsonify(
-        {"msg": f"{username}님을 삭제했습니다. (게시글 {removed_posts}건 함께 삭제)"}
-    )
-
-
-@admin_bp.get("/violations")
-@_admin_or_api_key_required
-def list_privilege_violations():
-    """허용목록에 없는 관리자 계정을 자동 권한 감사용으로 반환한다."""
-    allowed = _allowlist(request.args.get("allowlist"))
-    admins = User.query.filter(User.role >= ROLE_ADMIN).order_by(User.id.asc()).all()
-    violations = [user for user in admins if user.username not in allowed]
-    return jsonify(
-        {
-            "allowlist": allowed,
-            "count": len(violations),
-            "violations": [user.to_dict() for user in violations],
-        }
-    )
-
-
-@admin_bp.post("/grant")
-@_admin_or_api_key_required
+@admin_bp.route('/grant', methods=['POST'])
+@admin_required
 def grant_role():
-    """아이디와 등급 이름 또는 숫자로 권한을 부여하는 자동화 호환 API."""
-    data = request.get_json(silent=True) or {}
-    username = str(data.get("username") or "").strip()
-    new_role = _role_value(data.get("role"))
-    if not username or new_role is None:
-        return jsonify({"msg": "username과 role(user|gold|admin 또는 0|1|2)이 필요합니다."}), 400
-    user = User.query.filter_by(username=username).first()
-    if user is None:
-        return jsonify({"msg": f"없는 사용자: {username}"}), 404
+  """회원에게 역할 부여(인가). body: {username, role, reason}
+  시나리오상 여기서 admin 을 잘못/과하게 부여해 '불필요한 권한'을 만든다."""
+  data = request.get_json(silent=True) or {}
+  username = (data.get('username') or '').strip()
+  role = (data.get('role') or '').strip()
+  if not username or role not in VALID_ROLES:
+    return jsonify({'msg': f'username, role({ROLE_CHOICES}) 은 필수입니다.'}), 400
 
-    me = current_user()
-    if me and user.id == me.id and new_role < ROLE_ADMIN:
-        return jsonify({"msg": "자기 자신의 등급은 내릴 수 없습니다."}), 400
-    if (
-        user.role >= ROLE_ADMIN
-        and new_role < ROLE_ADMIN
-        and _admin_count(user.id) == 0
-    ):
-        return jsonify({"msg": "마지막 관리자는 강등할 수 없습니다."}), 400
+  user = User.query.filter_by(username=username).first()
+  if not user:
+    return jsonify({'msg': f'없는 사용자: {username}'}), 404
 
-    old_role = user.role
-    actor = _security_actor()
-    user.role = new_role
-    user.role_granted_by = actor
-    user.role_granted_at = datetime.now()
-    user.role_reason = str(data.get("reason") or "")[:200]
-    db.session.commit()
-    return jsonify(
-        {
-            "msg": "역할 부여 완료",
-            "username": username,
-            "old_role": old_role,
-            "new_role": new_role,
-            "old_role_name": role_name(old_role),
-            "new_role_name": role_name(new_role),
-            "granted_by": actor,
-        }
-    )
+  old = user.role
+  user.role = role
+  user.role_granted_by = getattr(request, 'actor', 'unknown')
+  user.role_granted_at = datetime.now()
+  user.role_reason = (data.get('reason') or '')[:200]
+  db.session.commit()
+  return jsonify({'msg': '역할 부여 완료', 'username': username,
+                  'old_role': old, 'new_role': role,
+                  'granted_by': user.role_granted_by}), 200
 
 
-@admin_bp.post("/revoke")
-@_admin_or_api_key_required
+@admin_bp.route('/revoke', methods=['POST'])
+@admin_required
 def revoke_role():
-    """과잉권한을 일반 등급으로 회수하고 감사 이벤트를 남긴다."""
-    data = request.get_json(silent=True) or {}
-    username = str(data.get("username") or "").strip()
-    if not username:
-        return jsonify({"msg": "username은 필수입니다."}), 400
-    user = User.query.filter_by(username=username).first()
-    if user is None:
-        return jsonify({"msg": f"없는 사용자: {username}"}), 404
+  """과잉권한 회수(최소권한 복원) → role 을 'user' 로. n8n 이 호출.
+  body: {username, reason, student, severity, src_ip}
+  회수가 실제로 일어나면 security_events 에 감사기록(source='privilege-guard')을 남긴다."""
+  data = request.get_json(silent=True) or {}
+  username = (data.get('username') or '').strip()
+  if not username:
+    return jsonify({'msg': 'username 은 필수입니다.'}), 400
 
-    old_role = user.role
-    if old_role == ROLE_USER:
-        return jsonify(
-            {
-                "msg": "이미 일반 권한이라 회수가 필요하지 않습니다.",
-                "username": username,
-                "old_role": old_role,
-                "new_role": ROLE_USER,
-                "revoked": False,
-            }
-        )
+  user = User.query.filter_by(username=username).first()
+  if not user:
+    return jsonify({'msg': f'없는 사용자: {username}'}), 404
 
-    me = current_user()
-    if me and user.id == me.id:
-        return jsonify({"msg": "자기 자신의 등급은 내릴 수 없습니다."}), 400
-    if user.role >= ROLE_ADMIN and _admin_count(user.id) == 0:
-        return jsonify({"msg": "마지막 관리자는 강등할 수 없습니다."}), 400
+  old = user.role
+  actor = getattr(request, 'actor', 'unknown')
+  if old == 'user':
+    # 이미 최소권한 — 변경 없음(감사기록도 남기지 않아 소음 방지)
+    return jsonify({'msg': '이미 user 권한(회수 불필요)', 'username': username,
+                    'old_role': old, 'new_role': 'user', 'revoked': False}), 200
 
-    actor = _security_actor()
-    reason = str(
-        data.get("reason") or f"과잉권한 회수: {username} {old_role}→{ROLE_USER}"
-    )[:200]
-    user.role = ROLE_USER
-    user.role_granted_by = actor
-    user.role_granted_at = datetime.now()
-    user.role_reason = reason
-    event = SecurityEvent(
-        student=str(data.get("student") or actor)[:50],
-        src_ip=str(data.get("src_ip") or "0.0.0.0")[:45],
-        fail_count=0,
-        decision="deny",
-        severity=str(data.get("severity") or "High")[:10],
-        reason=reason,
-        users=username[:255],
-        source=str(data.get("source") or "privilege-guard")[:50],
-        generated_at=data.get("generated_at"),
-    )
-    db.session.add(event)
-    db.session.commit()
-    return jsonify(
-        {
-            "msg": "권한 회수 완료",
-            "username": username,
-            "old_role": old_role,
-            "new_role": ROLE_USER,
-            "revoked": True,
-            "event_id": event.id,
-            "revoked_by": actor,
-        }
-    )
+  user.role = 'user'
+  user.role_granted_by = actor
+  user.role_granted_at = datetime.now()
+  user.role_reason = (data.get('reason') or f'{old}→user 회수 by {actor}')[:200]
+
+  # 감사기록: 대시보드에서 보이도록 security_events 재사용
+  ev = SecurityEvent(
+      student=(data.get('student') or actor)[:50],
+      src_ip=data.get('src_ip') or '0.0.0.0',
+      fail_count=0, decision='deny',
+      severity=data.get('severity', 'High'),
+      reason=(data.get('reason') or f'과잉권한 회수: {username} {old}→user')[:200],
+      users=username, source=data.get('source', 'privilege-guard'),
+      generated_at=data.get('generated_at'),
+  )
+  db.session.add(ev)
+  db.session.commit()
+  return jsonify({'msg': '권한 회수 완료', 'username': username,
+                  'old_role': old, 'new_role': 'user', 'revoked': True,
+                  'event_id': ev.id, 'revoked_by': actor}), 200
 
 
-@admin_bp.post("/lock")
-@_admin_or_api_key_required
+@admin_bp.route('/lock', methods=['POST'])
+@admin_required
 def lock_account():
-    """계정을 잠그고 보안 감사 이벤트를 남긴다."""
-    data = request.get_json(silent=True) or {}
-    username = str(data.get("username") or "").strip()
-    if not username:
-        return jsonify({"msg": "username은 필수입니다."}), 400
-    user = User.query.filter_by(username=username).first()
-    if user is None:
-        return jsonify({"msg": f"없는 사용자: {username}"}), 404
-    if user.is_locked:
-        return jsonify(
-            {
-                "msg": "이미 잠긴 계정",
-                "username": username,
-                "locked": True,
-                "changed": False,
-            }
-        )
+  """계정 잠금(브루트포스 대응) → is_locked=True. n8n 이 호출.
+  body: {username, reason, student, src_ip, fail_count, severity}
+  잠금이 실제로 일어나면 security_events 에 감사기록(source='login-guard')을 남긴다."""
+  data = request.get_json(silent=True) or {}
+  username = (data.get('username') or '').strip()
+  if not username:
+    return jsonify({'msg': 'username 은 필수입니다.'}), 400
+  user = User.query.filter_by(username=username).first()
+  if not user:
+    return jsonify({'msg': f'없는 사용자: {username}'}), 404
 
-    fail_count, error = _as_nonnegative_int(data.get("fail_count"), "fail_count")
-    if error:
-        return jsonify({"msg": error}), 400
+  actor = getattr(request, 'actor', 'unknown')
+  if user.is_locked:
+    return jsonify({'msg': '이미 잠긴 계정', 'username': username,
+                    'locked': True, 'changed': False}), 200
 
-    actor = _security_actor()
-    user.is_locked = True
-    user.locked_at = datetime.now()
-    user.lock_reason = str(
-        data.get("reason") or f"브루트포스 자동 잠금 by {actor}"
-    )[:200]
-    event = SecurityEvent(
-        student=str(data.get("student") or actor)[:50],
-        src_ip=str(data.get("src_ip") or "0.0.0.0")[:45],
-        fail_count=fail_count,
-        decision="deny",
-        severity=str(data.get("severity") or "High")[:10],
-        reason=str(data.get("reason") or f"계정 잠금: {username}")[:200],
-        users=username[:255],
-        source=str(data.get("source") or "login-guard")[:50],
-        generated_at=data.get("generated_at"),
-    )
-    db.session.add(event)
-    db.session.commit()
-    return jsonify(
-        {
-            "msg": "계정 잠금 완료",
-            "username": username,
-            "locked": True,
-            "changed": True,
-            "event_id": event.id,
-            "locked_by": actor,
-        }
-    )
+  user.is_locked = True
+  user.locked_at = datetime.now()
+  user.lock_reason = (data.get('reason') or f'브루트포스 자동 잠금 by {actor}')[:200]
+  ev = SecurityEvent(
+      student=(data.get('student') or actor)[:50],
+      src_ip=data.get('src_ip') or '0.0.0.0',
+      fail_count=int(data.get('fail_count') or 0), decision='deny',
+      severity=data.get('severity', 'High'),
+      reason=(data.get('reason') or f'계정 잠금: {username} (브루트포스)')[:200],
+      users=username, source=data.get('source', 'login-guard'),
+      generated_at=data.get('generated_at'),
+  )
+  db.session.add(ev)
+  db.session.commit()
+  return jsonify({'msg': '계정 잠금 완료', 'username': username, 'locked': True,
+                  'changed': True, 'event_id': ev.id, 'locked_by': actor}), 200
 
 
-@admin_bp.post("/unlock")
-@_admin_or_api_key_required
+@admin_bp.route('/unlock', methods=['POST'])
+@admin_required
 def unlock_account():
-    """계정 잠금을 해제하고 로그인 실패 횟수를 초기화한다."""
-    data = request.get_json(silent=True) or {}
-    username = str(data.get("username") or "").strip()
-    if not username:
-        return jsonify({"msg": "username은 필수입니다."}), 400
-    user = User.query.filter_by(username=username).first()
-    if user is None:
-        return jsonify({"msg": f"없는 사용자: {username}"}), 404
+  """계정 잠금 해제 → is_locked=False + 실패 카운트 초기화. body: {username}"""
+  data = request.get_json(silent=True) or {}
+  username = (data.get('username') or '').strip()
+  if not username:
+    return jsonify({'msg': 'username 은 필수입니다.'}), 400
+  user = User.query.filter_by(username=username).first()
+  if not user:
+    return jsonify({'msg': f'없는 사용자: {username}'}), 404
 
-    user.is_locked = False
-    user.failed_logins = 0
-    user.locked_at = None
-    user.lock_reason = None
-    db.session.commit()
-    return jsonify(
-        {
-            "msg": "잠금 해제 완료",
-            "username": username,
-            "locked": False,
-            "unlocked_by": _security_actor(),
-        }
-    )
+  user.is_locked = False
+  user.failed_logins = 0
+  user.lock_reason = None
+  db.session.commit()
+  return jsonify({'msg': '잠금 해제 완료', 'username': username, 'locked': False,
+                  'unlocked_by': getattr(request, 'actor', 'unknown')}), 200
 
 
-@admin_bp.post("/block")
-@_admin_or_api_key_required
+@admin_bp.route('/block', methods=['POST'])
+@admin_required
 def block_ip():
-    """IP를 차단 목록에 넣고 보안 감사 이벤트를 남긴다."""
-    data = request.get_json(silent=True) or {}
-    ip = str(data.get("ip") or data.get("src_ip") or "").strip()
-    if not ip:
-        return jsonify({"msg": "ip 또는 src_ip는 필수입니다."}), 400
-    if len(ip) > 45:
-        return jsonify({"msg": "ip는 45자 이하여야 합니다."}), 400
+  """공격 IP 실차단(active response) → blocked_ips 에 추가. n8n 이 호출.
+  body: {ip, reason, student, severity}. 이후 그 IP 요청은 미들웨어가 403(관리자 API 제외)."""
+  data = request.get_json(silent=True) or {}
+  ip = (data.get('ip') or data.get('src_ip') or '').strip()
+  if not ip:
+    return jsonify({'msg': 'ip(또는 src_ip) 는 필수입니다.'}), 400
+  actor = getattr(request, 'actor', 'unknown')
 
-    existing = db.session.get(BlockedIP, ip)
-    if existing:
-        return jsonify(
-            {"msg": "이미 차단된 IP", "ip": ip, "blocked": True, "changed": False}
-        )
-
-    fail_count, error = _as_nonnegative_int(data.get("fail_count"), "fail_count")
-    if error:
-        return jsonify({"msg": error}), 400
-
-    actor = _security_actor()
-    row = BlockedIP(
-        ip=ip,
-        reason=str(data.get("reason") or f"자동 차단 by {actor}")[:200],
-        blocked_by=actor[:80],
-    )
-    event = SecurityEvent(
-        student=str(data.get("student") or actor)[:50],
-        src_ip=ip,
-        fail_count=fail_count,
-        decision="deny",
-        severity=str(data.get("severity") or "High")[:10],
-        reason=str(data.get("reason") or f"IP 실차단: {ip}")[:200],
-        users="",
-        source=str(data.get("source") or "ip-guard")[:50],
-        generated_at=data.get("generated_at"),
-    )
-    db.session.add_all((row, event))
+  if not db.session.get(BlockedIP, ip):
+    db.session.add(BlockedIP(ip=ip, reason=(data.get('reason') or f'자동 차단 by {actor}')[:200],
+                             blocked_by=actor))
+    ev = SecurityEvent(
+        student=(data.get('student') or actor)[:50], src_ip=ip,
+        fail_count=int(data.get('fail_count') or 0), decision='deny',
+        severity=data.get('severity', 'High'),
+        reason=(data.get('reason') or f'IP 실차단: {ip}')[:200],
+        users='', source=data.get('source', 'ip-guard'),
+        generated_at=data.get('generated_at'))
+    db.session.add(ev)
     db.session.commit()
-    return jsonify(
-        {
-            "msg": "IP 차단 완료",
-            "ip": ip,
-            "blocked": True,
-            "changed": True,
-            "event_id": event.id,
-            "blocked_by": actor,
-        }
-    )
+    return jsonify({'msg': 'IP 차단 완료', 'ip': ip, 'blocked': True,
+                    'changed': True, 'event_id': ev.id, 'blocked_by': actor}), 200
+  return jsonify({'msg': '이미 차단된 IP', 'ip': ip, 'blocked': True, 'changed': False}), 200
 
 
-@admin_bp.post("/unblock")
-@_admin_or_api_key_required
+@admin_bp.route('/unblock', methods=['POST'])
+@admin_required
 def unblock_ip():
-    """IP 차단을 해제한다."""
-    data = request.get_json(silent=True) or {}
-    ip = str(data.get("ip") or data.get("src_ip") or "").strip()
-    if not ip:
-        return jsonify({"msg": "ip는 필수입니다."}), 400
-    row = db.session.get(BlockedIP, ip)
-    if row:
-        db.session.delete(row)
-        db.session.commit()
-    return jsonify(
-        {
-            "msg": "차단 해제 완료",
-            "ip": ip,
-            "blocked": False,
-            "unblocked_by": _security_actor(),
-        }
-    )
+  """IP 차단 해제. body: {ip}"""
+  data = request.get_json(silent=True) or {}
+  ip = (data.get('ip') or data.get('src_ip') or '').strip()
+  if not ip:
+    return jsonify({'msg': 'ip 는 필수입니다.'}), 400
+  row = db.session.get(BlockedIP, ip)
+  if row:
+    db.session.delete(row)
+    db.session.commit()
+  return jsonify({'msg': '차단 해제 완료', 'ip': ip, 'blocked': False,
+                  'unblocked_by': getattr(request, 'actor', 'unknown')}), 200
 
 
-@admin_bp.get("/blocked")
-@_admin_or_api_key_required
-def list_blocked_ips():
-    rows = BlockedIP.query.order_by(BlockedIP.blocked_at.desc()).all()
-    return jsonify({"count": len(rows), "blocked": [row.to_dict() for row in rows]})
+@admin_bp.route('/blocked', methods=['GET'])
+@admin_required
+def list_blocked():
+  """차단된 IP 목록."""
+  rows = BlockedIP.query.order_by(BlockedIP.blocked_at.desc()).all()
+  return jsonify({'count': len(rows), 'blocked': [r.to_dict() for r in rows]})
 
 
-_SEVERITY_RANK = {"Low": 1, "Medium": 2, "High": 3, "Critical": 4}
+_SEV_RANK = {'Low': 1, 'Medium': 2, 'High': 3, 'Critical': 4}
 
 
-def _build_incident_summary(src_ip, events):
-    by_source = {}
-    actions = set()
-    worst = "Low"
-    timeline = []
-    for event in events:
-        by_source[event.source] = by_source.get(event.source, 0) + 1
-        if event.decision:
-            actions.add(event.decision)
-        if _SEVERITY_RANK.get(event.severity, 1) > _SEVERITY_RANK.get(worst, 1):
-            worst = event.severity
-        occurred_at = (
-            event.created_at.strftime("%Y-%m-%d %H:%M:%S")
-            if event.created_at
-            else (event.generated_at or "?")
-        )
-        timeline.append(
-            f"- {occurred_at} [{event.severity}/{event.source}] "
-            f"{event.reason or ''} (users={event.users or '-'})"
-        )
-
-    first = events[-1].created_at if events and events[-1].created_at else None
-    last = events[0].created_at if events and events[0].created_at else None
-    source_summary = ", ".join(
-        f"{source}×{count}" for source, count in sorted(by_source.items())
-    )
-    action_summary = ", ".join(sorted(actions)) or "없음"
-    summary = (
-        f"[인시던트 요약] 출발지 {src_ip}\n"
-        f"- 관련 이벤트: {len(events)}건 ({source_summary})\n"
-        f"- 최초/최종: {first} ~ {last}\n"
-        f"- 취해진 조치: {action_summary}\n"
-        f"- 최고 심각도: {worst}\n"
-        "[타임라인]\n"
-        + "\n".join(timeline[:20])
-    )
-    return summary, worst, action_summary, len(events)
+def _build_summary(src_ip, events):
+  """security_events 를 사람이 읽는 인시던트 요약(타임라인·집계·조치)으로 취합."""
+  by_source, actions = {}, set()
+  worst = 'Low'
+  lines = []
+  for e in events:
+    by_source[e.source] = by_source.get(e.source, 0) + 1
+    if e.decision:
+      actions.add(e.decision)
+    if _SEV_RANK.get(e.severity, 1) > _SEV_RANK.get(worst, 1):
+      worst = e.severity
+    when = e.created_at.strftime('%Y-%m-%d %H:%M:%S') if e.created_at else (e.generated_at or '?')
+    lines.append(f"- {when} [{e.severity}/{e.source}] {e.reason or ''} (users={e.users or '-'})")
+  first = events[-1].created_at if events and events[-1].created_at else None
+  last = events[0].created_at if events and events[0].created_at else None
+  src_summary = ', '.join(f'{k}×{v}' for k, v in sorted(by_source.items()))
+  summary = (
+      f"[인시던트 요약] 출발지 {src_ip}\n"
+      f"- 관련 이벤트: {len(events)}건 ({src_summary})\n"
+      f"- 최초/최종: {first} ~ {last}\n"
+      f"- 취해진 조치: {', '.join(sorted(actions)) or '없음'}\n"
+      f"- 최고 심각도: {worst}\n"
+      f"[타임라인]\n" + "\n".join(lines[:20])
+  )
+  return summary, worst, ', '.join(sorted(actions)) or '없음', len(events)
 
 
-@admin_bp.post("/incident")
-@_admin_or_api_key_required
+@admin_bp.route('/incident', methods=['POST'])
+@admin_required
 def create_incident():
-    """최근 보안 이벤트를 모아 열린 인시던트를 생성하거나 갱신한다."""
-    data = request.get_json(silent=True) or {}
-    src_ip = str(data.get("src_ip") or data.get("ip") or "").strip()
-    if not src_ip:
-        return jsonify({"msg": "src_ip는 필수입니다."}), 400
-    hours, error = _as_nonnegative_int(data.get("hours"), "hours", default=24)
-    if error or hours == 0:
-        return jsonify({"msg": error or "hours는 1 이상이어야 합니다."}), 400
+  """인시던트 티켓 생성/갱신. body: {src_ip, title?, severity?, student?, hours?}
 
-    since = datetime.now() - timedelta(hours=hours)
-    events = (
-        SecurityEvent.query.filter(
-            SecurityEvent.src_ip == src_ip,
-            SecurityEvent.created_at >= since,
-        )
-        .order_by(SecurityEvent.created_at.desc())
-        .all()
-    )
-    summary, worst, actions, event_count = _build_incident_summary(src_ip, events)
-    severity = str(data.get("severity") or worst)
-    if severity not in _SEVERITY_RANK:
-        return jsonify({"msg": "severity 값이 올바르지 않습니다."}), 400
-    title = str(
-        data.get("title") or f"보안 인시던트: {src_ip} ({event_count}건)"
-    )[:200]
+  같은 src_ip 의 '열린' 티켓이 있으면 갱신(중복 방지), 없으면 새로 만든다.
+  요약은 최근 hours(기본 24) 시간의 security_events 를 자동 취합한다(사람이 읽는 리포트)."""
+  data = request.get_json(silent=True) or {}
+  src_ip = (data.get('src_ip') or data.get('ip') or '').strip()
+  if not src_ip:
+    return jsonify({'msg': 'src_ip 는 필수입니다.'}), 400
+  actor = getattr(request, 'actor', 'unknown')
+  hours = int(data.get('hours') or 24)
+  since = datetime.now() - timedelta(hours=hours)
+  # 같은 키의 '마지막으로 종료된 티켓' 이후 사건만 취합한다 — 이미 처리·종료한 사건을
+  # 새 티켓이 다시 흡수하지 않게([129] E2E 에서 발견). 같은 초 경계는 포함(>=) 쪽으로:
+  # 새 증거를 놓치는 것보다 한 건 겹치는 편이 안전하다.
+  last_closed = (Incident.query
+                 .filter(Incident.src_ip == src_ip, Incident.status == 'closed',
+                         Incident.closed_at.isnot(None))
+                 .order_by(Incident.closed_at.desc()).first())
+  if last_closed and last_closed.closed_at > since:
+    since = last_closed.closed_at
+  events = (SecurityEvent.query
+            .filter(SecurityEvent.src_ip == src_ip, SecurityEvent.created_at >= since)
+            .order_by(SecurityEvent.created_at.desc()).all())
+  summary, worst, actions, cnt = _build_summary(src_ip, events)
+  severity = data.get('severity') or worst
+  title = (data.get('title') or f'보안 인시던트: {src_ip} ({cnt}건)')[:200]
 
-    incident = Incident.query.filter_by(src_ip=src_ip, status="open").first()
-    created = incident is None
-    if created:
-        incident = Incident(src_ip=src_ip, status="open", title=title)
-        db.session.add(incident)
-    incident.title = title
-    incident.severity = severity
-    incident.summary = summary
-    incident.event_count = event_count
-    incident.actions = actions[:255]
-    incident.student = str(data.get("student") or _security_actor())[:50]
-    db.session.commit()
-    return (
-        jsonify(
-            {
-                "msg": "인시던트 생성" if created else "인시던트 갱신",
-                "created": created,
-                "incident": incident.to_dict(),
-            }
-        ),
-        201 if created else 200,
-    )
+  inc = Incident.query.filter_by(src_ip=src_ip, status='open').first()
+  created = False
+  if not inc:
+    inc = Incident(src_ip=src_ip, status='open'); db.session.add(inc); created = True
+  inc.title = title
+  # 심각도는 '내려가지 않는다': 요청값·취합 최고값·기존 티켓 값 중 가장 높은 것
+  # (Critical 티켓에 나중에 Medium 경보가 합쳐져도 Critical 유지 — [129] E2E 에서 발견해 수정)
+  inc.severity = max((severity, worst, inc.severity or 'Low'),
+                     key=lambda s: _SEV_RANK.get(s, 0))
+  inc.summary = summary
+  inc.event_count = cnt
+  inc.actions = actions[:255]
+  inc.student = (data.get('student') or actor)[:50]
+  db.session.commit()
+  return jsonify({'msg': '인시던트 생성' if created else '인시던트 갱신',
+                  'created': created, 'incident': inc.to_dict()}), (201 if created else 200)
 
 
-@admin_bp.get("/incidents")
-@_admin_or_api_key_required
+@admin_bp.route('/incidents', methods=['GET'])
+@admin_required
 def list_incidents():
-    status = request.args.get("status")
-    query = Incident.query
-    if status in ("open", "closed"):
-        query = query.filter_by(status=status)
-    rows = query.order_by(Incident.updated_at.desc()).all()
-    return jsonify(
-        {"count": len(rows), "incidents": [incident.to_dict() for incident in rows]}
-    )
+  """인시던트 목록. ?status=open|closed 로 필터."""
+  status = request.args.get('status')
+  q = Incident.query
+  if status in ('open', 'closed'):
+    q = q.filter_by(status=status)
+  rows = q.order_by(Incident.updated_at.desc()).all()
+  return jsonify({'count': len(rows), 'incidents': [r.to_dict() for r in rows]})
 
 
-@admin_bp.post("/incident/close")
-@_admin_or_api_key_required
+@admin_bp.route('/incident/close', methods=['POST'])
+@admin_required
 def close_incident():
-    data = request.get_json(silent=True) or {}
-    incident_id, error = _as_nonnegative_int(data.get("id"), "id")
-    if error or not incident_id:
-        return jsonify({"msg": error or "id는 필수입니다."}), 400
-    incident = db.session.get(Incident, incident_id)
-    if incident is None:
-        return jsonify({"msg": "없는 인시던트"}), 404
-    incident.status = "closed"
-    incident.closed_at = datetime.now()
-    db.session.commit()
-    return jsonify({"msg": "인시던트 종료", "incident": incident.to_dict()})
+  """인시던트 종료(status=closed). body: {id}"""
+  data = request.get_json(silent=True) or {}
+  inc = db.session.get(Incident, int(data.get('id') or 0))
+  if not inc:
+    return jsonify({'msg': '없는 인시던트'}), 404
+  inc.status = 'closed'
+  inc.closed_at = datetime.now()
+  db.session.commit()
+  return jsonify({'msg': '인시던트 종료', 'incident': inc.to_dict()}), 200

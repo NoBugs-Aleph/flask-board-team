@@ -1,39 +1,34 @@
-"""애플리케이션 보안 이벤트를 Graylog GELF UDP 입력으로 전송한다."""
+"""GELF 전송 헬퍼 — 게시판(앱)이 보안 로그를 Graylog(SIEM)로 직접 보낸다.
+
+로그인 실패 같은 '앱 계층 사건'은 tcpdump 로 못 잡는다. 앱이 아는 사실(누가·어디서
+실패했나)을 GELF 한 줄로 SIEM 에 흘려보내면, 집계·탐지·대응은 Graylog+n8n 이 맡는다.
+
+GELF: JSON 한 줄, 커스텀 필드는 `_` 접두사. UDP 12201(fire-and-forget).
+설정: GELF_HOST / GELF_PORT (config). 전송 실패는 로그인 흐름을 막지 않도록 조용히 무시.
+"""
 import json
 import socket
 
-from flask import current_app, request
-
-
-def request_src_ip():
-    """GELF src_ip 필드용 출발지. 랩 프록시가 넘긴 첫 IP를 우선한다."""
-    forwarded_for = request.headers.get("X-Forwarded-For", "")
-    if forwarded_for:
-        return forwarded_for.split(",", 1)[0].strip()
-    return request.remote_addr or "0.0.0.0"
+from flask import current_app
 
 
 def send_gelf(short_message, rule, **fields):
-    """GELF 전송 실패가 사용자 로그인 흐름을 막지 않도록 조용히 실패한다."""
-    # 테스트가 실습 Graylog로 가짜 경보를 쏘지 않도록 설정으로 끌 수 있다.
-    if not current_app.config.get("GELF_ENABLED", True):
-        return False
-    host = current_app.config.get("GELF_HOST", "localhost")
-    port = int(current_app.config.get("GELF_PORT", 12201))
-    message = {
-        "version": "1.1",
-        "host": "board",
-        "short_message": short_message,
-        "level": 4,
-        "_rule": rule,
-    }
-    for key, value in fields.items():
-        message[f"_{key}"] = value
+  """GELF 경보를 Graylog 로 보낸다(실패해도 예외를 올리지 않는다).
 
+  short_message: 사람이 읽는 요약,  rule: `_rule` 값(이벤트 필터 키),
+  **fields: 그 외 커스텀 필드(자동으로 `_` 접두사가 붙는다). 예) username='lsy', src_ip='1.2.3.4'
+  """
+  host = current_app.config.get('GELF_HOST', 'localhost')
+  port = int(current_app.config.get('GELF_PORT', 12201))
+  msg = {'version': '1.1', 'host': 'board', 'short_message': short_message,
+         'level': 4, '_rule': rule}
+  for k, v in fields.items():
+    msg['_' + k] = v
+  try:
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     try:
-        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
-            sock.sendto(json.dumps(message).encode("utf-8"), (host, port))
-    except (OSError, TypeError, ValueError):
-        # SIEM 장애가 인증 기능 장애로 번지면 안 된다.
-        return False
-    return True
+      s.sendto(json.dumps(msg).encode(), (host, port))
+    finally:
+      s.close()
+  except Exception:
+    pass   # SIEM 이 꺼져 있어도 로그인 자체는 계속 동작해야 한다

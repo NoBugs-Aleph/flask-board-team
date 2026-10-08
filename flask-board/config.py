@@ -1,58 +1,63 @@
-"""환경변수 기반 애플리케이션 설정."""
+"""설정 한 곳에 모으기.
+
+비밀값(DB 비밀번호·JWT 키·API 키)은 코드에 쓰지 않고 같은 폴더의 .env 에서 읽는다.
+.env 는 절대 깃에 올리지 않는다(.gitignore). 제출·공유용으로는 .env.example 만 남긴다.
+"""
 import os
 from datetime import timedelta
-from pathlib import Path
 
 from dotenv import load_dotenv
 
-
-BASE_DIR = Path(__file__).resolve().parent
-load_dotenv(BASE_DIR / ".env")
+load_dotenv()  # .env → 환경변수 (import 시점 1회)
 
 
 class Config:
-    SQLALCHEMY_DATABASE_URI = os.environ.get("DATABASE_URL", "").strip()
-    SQLALCHEMY_TRACK_MODIFICATIONS = False
-    JWT_SECRET_KEY = os.environ.get("JWT_SECRET_KEY", "").strip()
-    JWT_ACCESS_TOKEN_EXPIRES = timedelta(hours=2)
-    # 페이지 접근 제어를 서버에서 하려면 브라우저 주소창 이동(GET)에도 토큰이
-    # 실려야 한다. 그래서 헤더와 쿠키 두 곳을 모두 인정한다.
-    # - 기존 fetch API 호출: Authorization 헤더 그대로 사용
-    # - /gold, /admin 같은 페이지 이동: 쿠키로 서버가 직접 등급 확인
-    JWT_TOKEN_LOCATION = ["headers", "cookies"]
-    JWT_ACCESS_COOKIE_PATH = "/"
-    # CSRF 보호는 켜 둔다. 쿠키로 온 토큰의 POST/PUT/PATCH/DELETE만 CSRF 토큰을
-    # 요구하므로, GET 페이지와 헤더 토큰을 쓰는 기존 API에는 영향이 없다.
-    JWT_COOKIE_CSRF_PROTECT = True
-    # 로컬 http 개발에서는 0, https 배포에서는 1로 둔다.
-    JWT_COOKIE_SECURE = os.environ.get("JWT_COOKIE_SECURE", "0") == "1"
-    JWT_COOKIE_SAMESITE = "Lax"
-    SECURITY_API_KEY = os.environ.get("SECURITY_API_KEY", "").strip()
-    # n8n/SOAR가 계정 잠금, IP 차단, 인시던트 API를 호출할 때 쓴다.
-    # 별도 값을 두지 않으면 기존 보안 이벤트 API 키를 함께 사용한다.
-    ADMIN_API_KEY = (
-        os.environ.get("ADMIN_API_KEY", "").strip() or SECURITY_API_KEY
-    )
-    ADMIN_ALLOWLIST = [
-        username.strip()
-        for username in os.environ.get("ADMIN_ALLOWLIST", "").split(",")
-        if username.strip()
-    ]
-    AUTO_POST_ON_DENY = os.environ.get("AUTO_POST_ON_DENY", "0") == "1"
-    # 로그인 실패 같은 앱 계층 보안 이벤트를 Graylog GELF UDP 입력으로 보낸다.
-    GELF_HOST = os.environ.get("GELF_HOST", "localhost").strip() or "localhost"
-    GELF_PORT = int(os.environ.get("GELF_PORT", "12201"))
-    GELF_ENABLED = os.environ.get("GELF_ENABLED", "1").strip() != "0"
-    # 로그인 사건을 한 줄씩 남기는 호스트 파일. Wazuh 에이전트가 읽어 간다. 비우면 기록을 끈다.
-    SECURITY_LOG_PATH = os.environ.get(
-        "SECURITY_LOG_PATH",
-        os.path.join(os.path.dirname(os.path.abspath(__file__)), "logs", "security.log"),
-    )
-    PUBLIC_API_KEY = (
-        os.environ.get("PUBLIC_API_KEY", "").strip()
-        or os.environ.get("DATA_GO_KR_SERVICE_KEY", "").strip()
-        or os.environ.get("TOURKEY", "").strip()
-    )
-    PUBLIC_API_URL = (
-        "https://apis.data.go.kr/6260000/RecommendedService/getRecommendedKr"
-    )
+  # ── 데이터베이스 (도커 MySQL) ──
+  SQLALCHEMY_DATABASE_URI = os.environ.get(
+      'DATABASE_URL',
+      # 기본값에는 비밀번호를 두지 않는다 — 반드시 .env 의 DATABASE_URL 을 쓴다
+      'mysql+pymysql://<user>:<password>@localhost:3306/my_new_board_db',
+  )
+  SQLALCHEMY_TRACK_MODIFICATIONS = False
+
+  # ── 로그인 토큰 ──
+  JWT_SECRET_KEY = os.environ.get('JWT_SECRET_KEY', 'dev-only-change-me')
+  JWT_ACCESS_TOKEN_EXPIRES = timedelta(hours=2)
+
+  # ── Graylog GELF (앱이 로그인 실패 등 보안 로그를 SIEM 으로 전송) ──
+  GELF_HOST = os.environ.get('GELF_HOST', 'localhost')
+  GELF_PORT = int(os.environ.get('GELF_PORT', '12201'))
+
+  # ── 보안 로그 파일 (호스트의 Wazuh 에이전트가 읽어 감) ──
+  # 기본: 이 프로젝트 폴더의 logs/security.log. 비우면 파일 기록을 끈다.
+  SECURITY_LOG_PATH = os.environ.get(
+      'SECURITY_LOG_PATH',
+      os.path.join(os.path.dirname(os.path.abspath(__file__)), 'logs', 'security.log'))
+
+  # ── 웹 액세스 로그 (호스트의 Wazuh 에이전트가 읽어 감 — 디렉터리 스캔 탐지용) ──
+  # 기본: 이 프로젝트 폴더의 logs/webaccess.log. 비우면 파일 기록을 끈다.
+  WEBACCESS_LOG_PATH = os.environ.get(
+      'WEBACCESS_LOG_PATH',
+      os.path.join(os.path.dirname(os.path.abspath(__file__)), 'logs', 'webaccess.log'))
+
+  # ── 보안 이벤트 REST (n8n 이 호출) ──
+  # 값이 비어 있으면 POST 는 항상 401 (fail-closed: 실수로 열어두지 않는다)
+  SECURITY_API_KEY = os.environ.get('SECURITY_API_KEY', '')
+  # 거부(deny) 시 게시판에 '보안' 공지글 자동 등록
+  AUTO_POST_ON_DENY = os.environ.get('AUTO_POST_ON_DENY', '0') == '1'
+
+  # ── 관리자(인가) REST (n8n·회수봇이 호출) ──
+  # POST /api/admin/revoke 등 기계 호출용 키. 비어 있으면 SECURITY_API_KEY 로 대체.
+  # (사람은 관리자 페이지에서 JWT + role=admin 으로 접근)
+  ADMIN_API_KEY = os.environ.get('ADMIN_API_KEY', '') or SECURITY_API_KEY
+  # admin 을 가져도 되는 계정(정책 허용목록). 회수봇·위반조회의 기준.
+  # 쉼표로 구분: "lsy,instructor". 비어 있으면 모든 admin 을 '위반'으로 본다.
+  ADMIN_ALLOWLIST = [
+      u.strip() for u in os.environ.get('ADMIN_ALLOWLIST', '').split(',') if u.strip()
+  ]
+
+  # ── 공공데이터(부산 테마여행) ──
+  PUBLIC_API_KEY = os.environ.get('PUBLIC_API_KEY')
+  PUBLIC_API_URL = (
+      'http://apis.data.go.kr/6260000/RecommendedService/getRecommendedKr'
+  )

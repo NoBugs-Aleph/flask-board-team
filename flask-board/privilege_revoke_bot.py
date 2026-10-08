@@ -1,8 +1,21 @@
 #!/usr/bin/env python3
-"""허용목록 밖 관리자 계정을 찾아 신고하거나 일반 등급으로 회수한다.
+# -*- coding: utf-8 -*-
+"""자동 권한 회수봇 — 과잉권한(admin) 탐지 → Graylog(GELF) 신고.
 
-기본 실행은 Graylog GELF 신고만 하며, ``--revoke``를 함께 주면 게시판의
-관리자 API를 호출해 해당 계정을 일반(0) 등급으로 되돌린다.
+동작(최소권한 감사)
+  1) 게시판 GET /api/admin/users 로 회원·역할을 읽는다(X-API-Key).
+  2) role == 'admin' 인데 허용목록(ADMIN_ALLOWLIST) 에 없는 계정 = '과잉권한' 위반.
+  3) 위반 1건마다 Graylog 로 GELF 경보를 보낸다(rule=priv-unauthorized-admin).
+  4) 이후 Graylog 이벤트 → n8n 이 /api/admin/revoke 를 호출해 '실제 회수'를 한다.
+     (이 봇은 '탐지·신고'만 — SOAR 대응은 n8n 이 담당. --revoke 로 직접 회수도 가능.)
+
+윈도우 작업 스케줄러로 매시간 실행할 예정. 표준 라이브러리만 사용(설치 불필요).
+비밀값은 코드에 두지 않고 같은 폴더 .env 또는 환경변수에서 읽는다.
+
+사용:
+  python privilege_revoke_bot.py            # 탐지 + Graylog 신고
+  python privilege_revoke_bot.py --dry-run  # 신고 없이 위반만 출력
+  python privilege_revoke_bot.py --revoke    # (대체) 게시판 API 로 직접 회수까지
 """
 import argparse
 import json
@@ -10,146 +23,109 @@ import os
 import socket
 import sys
 import urllib.request
-from pathlib import Path
 
-
-BASE_DIR = Path(__file__).resolve().parent
+HERE = os.path.dirname(os.path.abspath(__file__))
 
 
 def load_env():
-    """추가 패키지 없이 프로젝트의 .env를 읽는다."""
-    path = BASE_DIR / ".env"
-    if not path.exists():
-        return
-    for raw_line in path.read_text(encoding="utf-8").splitlines():
-        line = raw_line.strip()
-        if not line or line.startswith("#") or "=" not in line:
-            continue
-        key, value = line.split("=", 1)
-        os.environ.setdefault(key.strip(), value.strip())
+  """같은 폴더 .env 를 읽어 os.environ 에 채운다(이미 있으면 유지). 의존성 없음."""
+  path = os.path.join(HERE, '.env')
+  if os.path.exists(path):
+    with open(path, encoding='utf-8') as f:
+      for line in f:
+        line = line.strip()
+        if not line or line.startswith('#') or '=' not in line:
+          continue
+        k, v = line.split('=', 1)
+        os.environ.setdefault(k.strip(), v.strip())
 
 
 def cfg():
-    load_env()
-    allowlist = [
-        username.strip()
-        for username in os.environ.get("ADMIN_ALLOWLIST", "").split(",")
-        if username.strip()
-    ]
-    return {
-        "board": os.environ.get("BOARD_URL", "http://localhost:5000").rstrip("/"),
-        "key": os.environ.get("ADMIN_API_KEY", "")
-        or os.environ.get("SECURITY_API_KEY", ""),
-        "allowlist": allowlist,
-        "gelf_host": os.environ.get(
-            "GELF_HOST", os.environ.get("GRAYLOG_HOST", "localhost")
-        ),
-        "gelf_port": int(
-            os.environ.get("GELF_PORT", os.environ.get("GRAYLOG_PORT", "12201"))
-        ),
-        "student": os.environ.get(
-            "STUDENT_NAME", os.environ.get("STUDENT", "myeongjundev")
-        ),
-        "src_ip": os.environ.get("BOARD_SRC_IP", "127.0.0.1"),
-    }
+  load_env()
+  allow = [u.strip() for u in os.environ.get('ADMIN_ALLOWLIST', '').split(',') if u.strip()]
+  return {
+      'board': os.environ.get('BOARD_URL', 'http://localhost:5000').rstrip('/'),
+      'key': os.environ.get('ADMIN_API_KEY', '') or os.environ.get('SECURITY_API_KEY', ''),
+      'allow': allow,
+      'graylog_host': os.environ.get('GRAYLOG_HOST', 'localhost'),
+      'graylog_port': int(os.environ.get('GRAYLOG_PORT', '12201')),
+      'student': os.environ.get('STUDENT', 'lsy'),
+      'src_ip': os.environ.get('BOARD_SRC_IP', '127.0.0.1'),  # 신고에 남길 대표 IP
+  }
 
 
-def get_json(url, key=None, method="GET", body=None):
-    data = json.dumps(body).encode("utf-8") if body is not None else None
-    request = urllib.request.Request(url, data=data, method=method)
-    request.add_header("Content-Type", "application/json")
-    if key:
-        request.add_header("X-API-Key", key)
-    with urllib.request.urlopen(request, timeout=10) as response:
-        return json.loads(response.read().decode("utf-8"))
+def get_json(url, key=None, method='GET', body=None):
+  data = json.dumps(body).encode() if body is not None else None
+  req = urllib.request.Request(url, data=data, method=method)
+  req.add_header('Content-Type', 'application/json')
+  if key:
+    req.add_header('X-API-Key', key)
+  with urllib.request.urlopen(req, timeout=10) as r:
+    return json.loads(r.read().decode())
 
 
-def find_violations(config):
-    """게시판에서 관리자 목록을 받아 허용목록 밖 계정만 반환한다."""
-    result = get_json(
-        f"{config['board']}/api/admin/users?role=admin", key=config["key"]
-    )
-    return [
-        user
-        for user in result.get("users", [])
-        if user["username"] not in config["allowlist"]
-    ]
+def find_violations(c):
+  """허용목록 밖 admin 목록을 게시판에서 가져온다."""
+  d = get_json(f"{c['board']}/api/admin/users?role=admin", key=c['key'])
+  return [u for u in d.get('users', []) if u['username'] not in c['allow']]
 
 
-def send_gelf(config, user):
-    """관리자 권한 위반 한 건을 GELF UDP 메시지로 보낸다."""
-    message = {
-        "version": "1.1",
-        "host": socket.gethostname(),
-        "short_message": (
-            f"privilege violation: '{user['username']}' has unauthorized admin"
-        ),
-        "level": 4,
-        "_rule": "priv-unauthorized-admin",
-        "_user": user["username"],
-        "_granted_by": user.get("role_granted_by") or "unknown",
-        "_src_ip": config["src_ip"],
-        "_student": config["student"],
-        "_count": 1,
-    }
-    payload = json.dumps(message).encode("utf-8")
-    with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as client:
-        client.sendto(payload, (config["gelf_host"], config["gelf_port"]))
+def send_gelf(c, user):
+  """위반 1건을 Graylog GELF(UDP 12201)로 신고."""
+  msg = {
+      'version': '1.1', 'host': socket.gethostname(),
+      'short_message': f"privilege violation: '{user['username']}' has unauthorized admin",
+      'level': 4,
+      '_rule': 'priv-unauthorized-admin',
+      '_user': user['username'],
+      '_granted_by': user.get('role_granted_by') or 'unknown',
+      '_src_ip': c['src_ip'],
+      '_student': c['student'],
+      '_count': 1,
+  }
+  payload = json.dumps(msg).encode()
+  s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+  try:
+    s.sendto(payload, (c['graylog_host'], c['graylog_port']))
+  finally:
+    s.close()
 
 
 def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--dry-run", action="store_true", help="신고 없이 위반만 출력")
-    parser.add_argument(
-        "--revoke", action="store_true", help="게시판 API로 직접 권한까지 회수"
-    )
-    args = parser.parse_args()
-    config = cfg()
+  ap = argparse.ArgumentParser()
+  ap.add_argument('--dry-run', action='store_true', help='신고 없이 위반만 출력')
+  ap.add_argument('--revoke', action='store_true', help='게시판 API 로 직접 회수까지(대체 경로)')
+  args = ap.parse_args()
 
-    if not config["key"]:
-        print("[!] ADMIN_API_KEY(또는 SECURITY_API_KEY)가 비어 있습니다.")
-        return 2
+  c = cfg()
+  if not c['key']:
+    print('[!] ADMIN_API_KEY(또는 SECURITY_API_KEY) 가 비어 있습니다. .env 확인.')
+    sys.exit(2)
 
-    try:
-        violations = find_violations(config)
-    except Exception as error:
-        print(f"[!] 게시판 조회 실패: {error}")
-        return 1
+  try:
+    bad = find_violations(c)
+  except Exception as e:
+    print(f'[!] 게시판 조회 실패: {e}')
+    sys.exit(1)
 
-    if not violations:
-        allowed = config["allowlist"] or "(비어 있음: 모든 관리자가 위반)"
-        print(f"[OK] 과잉권한 위반 없음 (허용목록: {allowed})")
-        return 0
+  if not bad:
+    print(f"[OK] 과잉권한 위반 없음 (허용목록: {c['allow'] or '(비어있음=모든 admin이 위반)'})")
+    return
 
-    names = ", ".join(user["username"] for user in violations)
-    print(f"[!] 과잉권한 관리자 {len(violations)}건 탐지: {names}")
-    for user in violations:
-        username = user["username"]
-        if args.dry_run:
-            print(f"    - {username} [dry-run]")
-            continue
-
-        send_gelf(config, user)
-        print(f"    - {username} -> Graylog 신고(rule=priv-unauthorized-admin)")
-        if args.revoke:
-            result = get_json(
-                f"{config['board']}/api/admin/revoke",
-                key=config["key"],
-                method="POST",
-                body={
-                    "username": username,
-                    "student": config["student"],
-                    "reason": f"봇 직접 회수: 허용목록 밖 관리자 ({username})",
-                    "src_ip": config["src_ip"],
-                    "source": "privilege-guard-bot",
-                },
-            )
-            print(
-                f"      회수: {result.get('old_role')}->{result.get('new_role')} "
-                f"(event {result.get('event_id')})"
-            )
-    return 0
+  print(f"[!] 과잉권한 admin {len(bad)}건 탐지: " + ', '.join(u['username'] for u in bad))
+  for u in bad:
+    if args.dry_run:
+      print(f"    - {u['username']} (부여자 {u.get('role_granted_by')}) [dry-run]")
+      continue
+    send_gelf(c, u)
+    print(f"    - {u['username']} → Graylog 신고(rule=priv-unauthorized-admin)")
+    if args.revoke:  # 대체: n8n 없이 봇이 직접 회수
+      r = get_json(f"{c['board']}/api/admin/revoke", key=c['key'], method='POST',
+                   body={'username': u['username'], 'student': c['student'],
+                         'reason': f"봇 직접 회수: 허용목록 밖 admin ({u['username']})",
+                         'src_ip': c['src_ip'], 'source': 'privilege-guard-bot'})
+      print(f"      회수: {r.get('old_role')}→{r.get('new_role')} (event {r.get('event_id')})")
 
 
-if __name__ == "__main__":
-    sys.exit(main())
+if __name__ == '__main__':
+  main()

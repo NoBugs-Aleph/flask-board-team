@@ -1,27 +1,11 @@
+"""모델 묶음.
+
+db.create_all() 이 테이블을 만들려면 모든 모델 클래스가 미리 import 되어 있어야 한다.
+"""
 from .blocked_ip import BlockedIP
 from .incident import Incident
 from .post import Post
 from .security_event import SecurityEvent
-from .user import (
-    ROLE_ADMIN,
-    ROLE_GOLD,
-    ROLE_NAMES,
-    ROLE_USER,
-    VALID_ROLES,
-    User,
-    role_name,
-)
+from .user import User
 
-__all__ = [
-    "User",
-    "Post",
-    "SecurityEvent",
-    "BlockedIP",
-    "Incident",
-    "ROLE_USER",
-    "ROLE_GOLD",
-    "ROLE_ADMIN",
-    "ROLE_NAMES",
-    "VALID_ROLES",
-    "role_name",
-]
+__all__ = ['User', 'Post', 'SecurityEvent', 'BlockedIP', 'Incident']
