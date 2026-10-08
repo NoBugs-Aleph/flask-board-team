@@ -1,0 +1,9 @@
+<!-- Manager ossec.conf 의 기존 active-response(100211,100231) 아래에 추가.
+     이벤트는 Suricata VM의 Agent에서 오므로 location=local 이 아니라, 대상 서버(board-host, Windows)에서 차단한다. -->
+<active-response>
+  <command>netsh</command>
+  <location>defined-agent</location>
+  <agent_id>001</agent_id>
+  <rules_id>100240,100241</rules_id>
+  <timeout>600</timeout>
+</active-response>

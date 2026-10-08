@@ -1,0 +1,6 @@
+이름 또는 닉네임: 김대훈 / chacha1650a
+GitHub 사용자명: chacha1650a
+담당 역할: 부팀장
+관심 분야: 네트워크 / 보안
+사용 가능한 기술: n8n workflow, Graylog, React, Spring Boot, MySQL, Git, Docker, Kali Linux
+조원들에게 전하고 싶은 한마디: 다들 화이팅~~

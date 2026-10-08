@@ -67,9 +67,9 @@ Flask 로그인 파일 수집까지 정상이라고 판단하지 않습니다.
 |---|---|---|
 | Wazuh 버전 | Manager·Indexer·Dashboard 모두 4.9.0 | |
 | 컨테이너 | `wazuh-manager`, `wazuh-indexer`, `wazuh-dashboard` | |
-| 게시판 경로 | `C:\SKT aleph\flask-board` | |
-| Wazuh Compose | 게시판 아래 `wazuh\docker-compose.yml` | |
-| 설정·인증서 경로 | 게시판 루트 `config\` | |
+| 게시판 경로 | `C:\SKT aleph\flask-board-team\flask-board` | |
+| 실행 중인 Wazuh Compose | 기존 `C:\SKT aleph\flask-board\wazuh\docker-compose.yml` | |
+| 실행 중인 인증서 마운트 원본 | 기존 `C:\SKT aleph\flask-board\config\` | |
 | Compose의 파일 마운트 | `../config/...` | |
 | 외부 Docker 네트워크 | `9_graylog_default` | |
 | Windows Agent | `board-host`, ID `001`, Active | |
@@ -77,6 +77,11 @@ Flask 로그인 파일 수집까지 정상이라고 판단하지 않습니다.
 | 파일 로그 | 게시판의 `logs\security.log` | |
 | FIM 감시 경로 | 게시판의 `templates\` | |
 | Dashboard | Docker 호스트의 `https://localhost/`, 호스트 포트 443 | |
+
+참고 PC는 Agent의 게시판 감시 경로를 팀 폴더로 변경했고, 실행 중인 컨테이너의
+Compose·인증서 마운트는 기존 폴더를 사용합니다. 팀 폴더의 Compose 사본을 재실행하려면
+해당 폴더에 인증서도 준비해야 합니다. 개인 경로 변경은
+[팀원용 경로 설정 안내](WAZUH-PERSONAL-PATH-GUIDE.md)를 참고합니다.
 
 참고 PC에서는 로그인 실패 `100210`, 브루트포스 의심 `100211`, FIM 생성·수정 `100220`,
 삭제 `100222`가 Indexer에서 조회됐습니다. 한 점검 시점의 Agent 001 경보 수는 86건이었습니다.
@@ -125,7 +130,7 @@ docker inspect wazuh-manager --format '{{index .Config.Labels "com.docker.compos
 확인한 Wazuh Compose 파일을 지정해 구문을 검사합니다.
 
 ```powershell
-# 본인의 실제 파일 경로로 바꿉니다. 아래는 참고 PC의 예입니다.
+# 위 컨테이너 라벨에서 확인한 실제 Compose 경로를 사용합니다. 아래는 참고 PC의 실행 경로입니다.
 $ComposeFile = 'C:\SKT aleph\flask-board\wazuh\docker-compose.yml'
 docker compose -f $ComposeFile config --quiet
 ```
@@ -185,7 +190,7 @@ Select-String -LiteralPath $AgentSharedConfig -Pattern '<location>','<directorie
 먼저 확인된 게시판 루트를 지정합니다. 아래는 참고 경로입니다.
 
 ```powershell
-$BoardRoot = 'C:\SKT aleph\flask-board'
+$BoardRoot = 'C:\SKT aleph\flask-board-team\flask-board'
 Get-Item -LiteralPath (Join-Path $BoardRoot 'logs\security.log')
 ```
 

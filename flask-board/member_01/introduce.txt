@@ -1,4 +1,4 @@
-이름 또는 닉네임: myeongjundev
+이름 또는 닉네임: 김명준
 GitHub 사용자명: myeongjundev
 담당 역할: NoBugs 조장, 저장소 준비 및 Pull Request 검토·통합
 관심 분야: Flask 웹 개발, 보안 이벤트 수집과 탐지, 팀 협업

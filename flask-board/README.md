@@ -13,6 +13,7 @@ n8n으로 알림과 계정 잠금·IP 차단·인시던트 대응을 연결하�
 | --- | --- |
 | 게시판·DB·n8n 실행 준비 | [SETUP.md](SETUP.md) |
 | Wazuh Manager·Indexer·Dashboard 구성과 기존 설정 보존 | [Wazuh 실행 안내](wazuh/README.md) |
+| 팀원별 게시판 경로 설정 및 FIM 생성·수정·삭제 검증 | [Wazuh 개인 경로 설정 안내](docs/WAZUH-PERSONAL-PATH-GUIDE.md) |
 | Dashboard에 메시지가 없을 때 개인별 LLM 점검 | [Wazuh LLM 검증 길라잡이](docs/WAZUH-LLM-VERIFICATION-GUIDE.md) |
 | Graylog 탐지 정의 복사·LLM 비교·다른 PC로 가져오기 | [Graylog Alerts 내보내기](graylog/exports/README.md) |
 | PC·폴더를 옮긴 뒤 재연결 | [환경 재배치](docs/RELOCATION-RUNBOOK.md) |

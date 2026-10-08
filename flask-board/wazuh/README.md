@@ -100,8 +100,52 @@ docker compose -f wazuh/docker-compose.yml logs --tail 100
 보장하지 않습니다. Flask의 `/dashboard`와 Wazuh Dashboard는 별도 화면입니다.
 현재 `board-host`의 ID는 `001`이고 `default, flask-board` 그룹을 사용합니다.
 수업 자료의 `002` 대신 `001`로 검색합니다. 기존 그룹 설정은
-`C:\SKT aleph\flask-board\logs\security.log` 수집 및 `templates` 실시간
+`C:\SKT aleph\flask-board-team\flask-board\logs\security.log` 수집 및
+`C:\SKT aleph\flask-board-team\flask-board\templates` 실시간
 감시를 포함합니다. FIM 경보는 `100220`, `100221`, `100222` 규칙으로 확인합니다.
+
+### 팀 게시판의 Agent 공유 설정
+
+[agent.conf](agent.conf)는 이 PC의 팀 게시판 경로를 사용하는 설정 원본입니다.
+다른 팀원은 본인 PC의 경로로 수정한 뒤 적용합니다. Manager의 `flask-board` 그룹
+공유 설정과 게시판 `.env`의 `SECURITY_LOG_PATH`가 같은 로그 파일을 가리켜야 합니다.
+
+기존 공유 설정에 다른 수집 항목이 있다면
+[개인 경로 설정 안내](../docs/WAZUH-PERSONAL-PATH-GUIDE.md)의 백업·부분 수정 절차를 사용합니다.
+아래 명령은 이 PC의 게시판 전용 그룹에 원본을 검사하고 적용하는 예시입니다.
+
+```powershell
+docker cp .\wazuh\agent.conf wazuh-manager:/tmp/flask-board-agent.conf
+if ($LASTEXITCODE -ne 0) { throw '설정 파일 업로드 실패' }
+docker exec wazuh-manager /var/ossec/bin/verify-agent-conf -f /tmp/flask-board-agent.conf
+if ($LASTEXITCODE -ne 0) { throw '문법 검사 실패: 적용하지 않습니다.' }
+# 위 검사 성공 후 기존 공유 설정을 백업하고 적용
+docker exec wazuh-manager cp -p /var/ossec/etc/shared/flask-board/agent.conf /var/ossec/etc/shared/flask-board/agent.conf.before-team-path
+if ($LASTEXITCODE -ne 0) { throw '공유 설정 백업 실패: 적용하지 않습니다.' }
+docker exec wazuh-manager cp /tmp/flask-board-agent.conf /var/ossec/etc/shared/flask-board/agent.conf
+```
+
+로컬 `.env` 설정:
+
+```dotenv
+SECURITY_LOG_PATH=C:\SKT aleph\flask-board-team\flask-board\logs\security.log
+```
+
+`.env` 변경 후 Flask를 재시작합니다. Manager가 공유 설정을 배포한 뒤 Windows의
+`C:\Program Files (x86)\ossec-agent\shared\agent.conf`에 새 경로가 들어왔는지 확인합니다.
+Manager 컨테이너를 재생성하는 것만으로는 감시 경로가 변경되지 않습니다.
+
+2026-10-08 팀 경로 적용 후 확인한 결과:
+
+- Agent `001`의 공유 설정 동기화 완료 및 Active 상태 확인
+- 게시판 HTTP 200 및 새 `logs/security.log` 기록 확인
+- 16:07:20 로그인 실패 테스트 경보 `100210`의 새 `location`을 Indexer에서 확인
+- 16:07:49 새 `templates`의 임시 TXT 생성 경보 `100221`을 Indexer에서 확인
+- 검증용 TXT 파일 삭제 완료; 원래 게시판의 로그와 기존 경보는 보존
+
+이 변경은 Agent 감시 경로와 게시판 로그 출력 경로를 맞춘 것입니다.
+실행 중인 컨테이너의 인증서 bind mount는 기존 게시판의 `config/`를 계속 사용합니다.
+팀 폴더에서 Compose를 재실행하려면 Git에서 제외된 인증서가 해당 폴더에도 있어야 합니다.
 
 실제 TLS 개인키와 Agent 키가 포함된 백업은 `.gitignore`로 제외합니다.
 수업 자료: https://app.notion.com/p/wazuh_4-9_-d730741730ea82ed95b881c8f214105f
