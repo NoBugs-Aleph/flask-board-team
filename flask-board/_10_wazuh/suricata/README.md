@@ -23,11 +23,15 @@ Kali 안에서(저장소 경로의 `local.rules`를 복사; 경로는 본인 PC�
 sudo cp "/mnt/c/Users/user/Desktop/flask-board-team/flask-board-team/flask-board/_10_wazuh/suricata/local.rules" /etc/suricata/lab.rules
 sudo suricata -T -c /etc/suricata/suricata.yaml -S /etc/suricata/lab.rules -l /tmp
 ```
-`Configuration provided was successfully loaded`가 나오면 검사 통과. 이어서 실행(이 터미널은 계속 켜 둔다):
+`Configuration provided was successfully loaded`가 나오면 검사 통과. Wazuh JSON 디코더는 필드가 너무 많은 줄을 못 읽으므로(`Too many fields for JSON decoder`), eve-log의 `stats` 항목만 뺀 설정 복사본을 만든다(원본은 그대로):
 ```bash
-sudo suricata -c /etc/suricata/suricata.yaml -i eth0 -S /etc/suricata/lab.rules -l /mnt/c/suricata-logs --set stats.enabled=no
+sed '/^        - stats:$/,/null-values/d' /etc/suricata/suricata.yaml > /tmp/lab.yaml
 ```
-`-S`는 이 규칙 파일만 사용한다는 뜻이라 다른 설정을 고칠 필요가 없다. `--set stats.enabled=no`는 통계 로그를 꺼서 Wazuh의 `Too many fields for JSON decoder` 오류를 막는다. 중지는 `Ctrl+C`.
+이어서 실행(이 터미널은 계속 켜 둔다):
+```bash
+sudo suricata -c /tmp/lab.yaml -i eth0 -S /etc/suricata/lab.rules -l /mnt/c/suricata-logs
+```
+`-S`는 이 규칙 파일만 사용한다는 뜻이다. 중지는 `Ctrl+C`.
 
 ## 3. Windows: Agent가 eve.json 읽게 하기 (관리자 PowerShell)
 `wazuh-agent-ossec-snippet.xml`의 `<localfile>` 블록을 `C:\Program Files (x86)\ossec-agent\ossec.conf`의 `</ossec_config>` 바로 위에 붙여 넣고 저장한 뒤:
