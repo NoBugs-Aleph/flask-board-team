@@ -1,0 +1,10 @@
+
+<!-- Wazuh 경보를 Graylog(UDP 5140, 'ossec: {JSON}' 형태)로 전달 -->
+<ossec_config>
+  <syslog_output>
+    <server>gl-graylog</server>
+    <port>5140</port>
+    <format>json</format>
+    <rule_id>100211,100220,100221,100222,100231</rule_id>
+  </syslog_output>
+</ossec_config>
