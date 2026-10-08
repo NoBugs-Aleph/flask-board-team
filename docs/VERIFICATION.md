@@ -39,6 +39,15 @@ OK
 | 본인 게시글 수정 | HTTP 200, 변경한 제목 확인 |
 | 본인 게시글 삭제 | HTTP 200, 목록에서 제거 확인 |
 
+## GitHub 생성 및 업로드
+
+2026-10-08에 아래 실제 GitHub API 응답과 Push 성공을 확인했습니다.
+
+- 조직 `NoBugs-Aleph`: Free, 표시 이름 NoBugs.
+- 조직 소유자 `myeongjundev`: membership `active`, role `admin`.
+- 원본 저장소: <https://github.com/NoBugs-Aleph/flask-board-team>, 공개(`private: false`), 기본 브랜치 `main`.
+- 게시판 복사본과 협업 문서 최초 커밋 `96460c6`을 `main`에 업로드했습니다.
+
 ## 아직 필요한 실제 협업 기록
 
-조직·원격 저장소 생성과 Push, 각자의 Fork·자기소개 PR, 조장의 Merge는 실제 GitHub 상태를 확인한 뒤 [제출 체크리스트](SUBMISSION-CHECKLIST.md)에 추가합니다. 이 문서의 로컬 테스트 성공은 팀원 PC의 실행/수집 성공을 증명하지 않습니다.
+각자의 Fork·자기소개 PR, 조장의 Merge는 실제 GitHub 상태를 확인한 뒤 [제출 체크리스트](SUBMISSION-CHECKLIST.md)에 추가합니다. 이 문서의 로컬 테스트 성공은 팀원 PC의 실행/수집 성공을 증명하지 않습니다.

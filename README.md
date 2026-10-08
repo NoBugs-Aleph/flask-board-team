@@ -2,7 +2,9 @@
 
 기존 Flask 게시판을 `_7_board_test`에 복사하고, 각자가 Fork에서 자기소개 파일을 작성한 뒤 Pull Request로 통합하는 실습입니다.
 
-예정 저장소: `NoBugs-Aleph/flask-board-team`. 조직과 원격 저장소 생성 여부는 GitHub에서 확인해야 합니다.
+조직: [NoBugs](https://github.com/NoBugs-Aleph) · 조별 원본 저장소: [NoBugs-Aleph/flask-board-team](https://github.com/NoBugs-Aleph/flask-board-team)
+
+GitHub Free의 공개 저장소입니다. 조장 `myeongjundev`가 조직을 관리합니다. 조원은 개인 Fork에서 작업한 뒤 이 저장소의 `main`으로 PR을 제출합니다.
 
 ## 조원과 작업 폴더
 

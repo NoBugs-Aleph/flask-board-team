@@ -4,8 +4,8 @@
 
 ## GitHub 협업 실습
 
-- [ ] 조직 생성: `NoBugs-Aleph`, 관리자 `myeongjundev`
-- [ ] 조직 원본 저장소 생성 및 업로드 — 실제 URL:
+- [x] 조직 생성: `NoBugs-Aleph` (표시 이름 NoBugs), GitHub Free, 관리자 `myeongjundev`
+- [x] 조직 원본 저장소 생성 및 업로드 — <https://github.com/NoBugs-Aleph/flask-board-team>
 - [x] `_7_board_test`에 기존 게시판 소스 복사
 - [x] 복사본 게시판 정상 실행 및 기본 기능 확인 — [검증 기록](VERIFICATION.md)
 - [ ] 조원에게 저장소 주소와 [길라잡이](COLLABORATION-GUIDE.md) 공유

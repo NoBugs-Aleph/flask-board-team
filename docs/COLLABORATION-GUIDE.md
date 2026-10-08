@@ -7,7 +7,9 @@
 1. `myeongjundev` 계정이 소유한 `NoBugs-Aleph` 조직을 GitHub Free로 생성합니다.
 2. 조직 안에 공개 저장소 `flask-board-team`을 만듭니다. 기존 개인 저장소는 유지합니다.
 3. 이 폴더의 `main`을 업로드합니다. GitHub에서 `_7_board_test/app.py`와 이 안내서가 있는지 확인합니다.
-4. 팀원에게 실제 생성된 저장소 주소를 공유합니다. 예정 주소는 <https://github.com/NoBugs-Aleph/flask-board-team>이며, 생성 전에는 접속되지 않습니다.
+4. 팀원에게 생성된 저장소 주소 <https://github.com/NoBugs-Aleph/flask-board-team>를 공유합니다.
+
+2026-10-08에 조직과 공개 저장소 생성 및 `main` 업로드를 확인했습니다. 조원은 위 주소에서 Fork를 시작하면 됩니다.
 
 공개 저장소는 조원이 조직 구성원이 아니어도 Fork하고 PR을 보낼 수 있습니다. 이번 실습은 개인 Fork를 사용합니다. 조직 가입 초대와 저장소 직접 쓰기 권한은 별도 절차입니다.
 
