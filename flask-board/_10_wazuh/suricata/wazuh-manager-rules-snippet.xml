@@ -1,0 +1,13 @@
+<!-- Manager의 /var/ossec/etc/rules/local_rules.xml 끝에 추가. 86601은 Wazuh 기본 Suricata alert 룰 -->
+<group name="local,suricata,lab,">
+  <rule id="100240" level="10">
+    <if_sid>86601</if_sid>
+    <field name="alert.signature_id">9000001</field>
+    <description>Suricata: Nmap 포트 스캔 탐지 (출발지 $(src_ip))</description>
+  </rule>
+  <rule id="100241" level="12">
+    <if_sid>86601</if_sid>
+    <field name="alert.signature_id">9000002|9000003</field>
+    <description>Suricata: SQLmap/SQL 인젝션 시도 탐지 (출발지 $(src_ip))</description>
+  </rule>
+</group>

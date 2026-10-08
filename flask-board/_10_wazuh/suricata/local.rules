@@ -1,0 +1,11 @@
+# 실습용 Suricata 규칙. 허가된 실습 대상(HOME_NET)에서만 사용한다.
+# /var/lib/suricata/rules/local.rules 에 복사하고 suricata.yaml 의 rule-files 에 local.rules 를 추가한다.
+
+# Nmap 포트 스캔: 같은 출발지가 10초 안에 20개 이상 SYN 시도
+alert tcp any any -> $HOME_NET any (msg:"LAB Nmap SYN port scan"; flags:S,12; threshold:type threshold, track by_src, count 20, seconds 10; classtype:attempted-recon; sid:9000001; rev:1;)
+
+# SQLmap: 기본 User-Agent
+alert http any any -> $HOME_NET any (msg:"LAB SQLmap User-Agent detected"; flow:established,to_server; http.user_agent; content:"sqlmap"; nocase; classtype:web-application-attack; sid:9000002; rev:1;)
+
+# SQLmap/SQL 인젝션 전형 패턴(UNION SELECT)
+alert http any any -> $HOME_NET any (msg:"LAB SQL injection UNION SELECT in URI"; flow:established,to_server; http.uri; content:"union"; nocase; content:"select"; nocase; distance:0; classtype:web-application-attack; sid:9000003; rev:1;)

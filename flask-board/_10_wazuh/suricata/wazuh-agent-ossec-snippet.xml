@@ -1,0 +1,5 @@
+<!-- Suricata가 설치된 Linux VM의 Wazuh Agent ossec.conf <ossec_config> 안에 추가 -->
+<localfile>
+  <log_format>json</log_format>
+  <location>/var/log/suricata/eve.json</location>
+</localfile>
