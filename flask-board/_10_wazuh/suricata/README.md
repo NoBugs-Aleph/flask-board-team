@@ -33,15 +33,15 @@ sudo suricata -c /tmp/lab.yaml -i eth0 -S /etc/suricata/lab.rules -l /mnt/c/suri
 ```
 `-S`는 이 규칙 파일만 사용한다는 뜻이다. 중지는 `Ctrl+C`.
 
-## 3. Windows: Agent가 eve.json 읽게 하기 (관리자 PowerShell)
-`wazuh-agent-ossec-snippet.xml`의 `<localfile>` 블록을 `C:\Program Files (x86)\ossec-agent\ossec.conf`의 `</ossec_config>` 바로 위에 붙여 넣고 저장한 뒤:
+## 3. Windows: Agent가 로그를 읽게 하기 (관리자 PowerShell)
+`wazuh-agent-ossec-snippet.xml`의 `<localfile>` 블록 2개(fast.log, eve.json)를 `C:\Program Files (x86)\ossec-agent\ossec.conf`의 `</ossec_config>` 바로 위에 넣고 저장한 뒤:
 ```powershell
 Restart-Service -Name WazuhSvc
 ```
+자동 차단은 `fast.log`가 필요하다. eve.json의 `src_ip`는 Wazuh가 `srcip`로 인식하지 않아 차단 스크립트가 `Cannot read 'srcip' from data`로 실패한다.
 
 ## 4. Manager
-이 저장소 작업에서는 이미 적용돼 있다. 다른 PC라면 `wazuh-manager-rules-snippet.xml`(룰),
-`wazuh-manager-decoder-snippet.xml`(src_ip→srcip 디코더, 없으면 차단이 실패함),
+이 저장소 작업에서는 이미 적용돼 있다. 다른 PC라면 `wazuh-manager-rules-snippet.xml`(룰 100250~100252),
 `wazuh-manager-active-response-snippet.xml`(차단)을 추가하고 검사 후 재시작한다.
 ```powershell
 docker exec wazuh-manager /var/ossec/bin/wazuh-analysisd -t
@@ -57,10 +57,10 @@ sqlmap -u "http://172.17.144.1:5000/api/posts?id=1" --batch
 
 ## 6. 확인
 - eve.json 기록: Windows PowerShell `Select-String '"event_type":"alert"' C:\suricata-logs\eve.json | Select -Last 3`
-- Wazuh 경보: `docker exec wazuh-manager grep -E '"id":"10024[01]"' /var/ossec/logs/alerts/alerts.json`
+- Wazuh 경보: `docker exec wazuh-manager grep -E '"id":"10025[12]"' /var/ossec/logs/alerts/alerts.json`
 - 자동 차단: `docker exec wazuh-manager tail /var/ossec/logs/active-responses.log`
 - Windows 방화벽 규칙: `netsh advfirewall firewall show rule name=all | findstr /i wazuh`
-- Dashboard: Threat Hunting에서 `rule.id:(100240 OR 100241)`, 시간 범위를 테스트 시각으로 지정해 캡처.
+- Dashboard: Threat Hunting에서 `rule.id:(100251 OR 100252)`, 시간 범위를 테스트 시각으로 지정해 캡처.
 
 ## 주의
 - 차단되면 Kali→Windows 접속이 10분간 막힌다(정상). 10분 뒤 풀리며, 급하면 Windows에서 Wazuh가 만든 방화벽 규칙을 삭제한다.

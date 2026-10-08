@@ -1,8 +1,0 @@
-<!-- Manager의 /var/ossec/etc/decoders/local_decoder.xml 끝에 추가.
-     Suricata의 src_ip를 Active Response(netsh)가 읽는 srcip 필드로 매핑한다.
-     없으면 자동 차단이 "Cannot read 'srcip' from data" 오류로 실패한다. -->
-<decoder name="json-suricata-srcip">
-  <parent>json</parent>
-  <regex type="pcre2">"event_type":"alert","src_ip":"([0-9.]+)"</regex>
-  <order>srcip</order>
-</decoder>

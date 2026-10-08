@@ -1,13 +1,21 @@
-<!-- Manager의 /var/ossec/etc/rules/local_rules.xml 끝에 추가. 86601은 Wazuh 기본 Suricata alert 룰 -->
+<!-- Manager의 /var/ossec/etc/rules/local_rules.xml 끝에 추가.
+     Suricata fast.log 한 줄은 Wazuh 기본 snort 디코더가 srcip(출발지 IP)를 뽑아 주므로 별도 디코더가 필요 없다.
+     (eve.json의 src_ip는 srcip로 인식되지 않아 자동 차단이 실패한다 → 차단용 룰은 fast.log 기준.)
+     규칙은 기본 IDS 룰 20100/20101의 자식으로 둔다. -->
 <group name="local,suricata,lab,">
-  <rule id="100240" level="10">
-    <if_sid>86601</if_sid>
-    <field name="alert.signature_id">9000001</field>
-    <description>Suricata: Nmap 포트 스캔 탐지 (출발지 $(src_ip))</description>
+  <rule id="100250" level="2">
+    <if_sid>20100,20101</if_sid>
+    <id>^1:9000001:</id>
+    <description>Suricata fast.log: Nmap SYN scan packet</description>
   </rule>
-  <rule id="100241" level="12">
-    <if_sid>86601</if_sid>
-    <field name="alert.signature_id">9000002|9000003</field>
-    <description>Suricata: SQLmap/SQL 인젝션 시도 탐지 (출발지 $(src_ip))</description>
+  <rule id="100252" level="10" frequency="3" timeframe="30" ignore="600">
+    <if_matched_sid>100250</if_matched_sid>
+    <same_source_ip />
+    <description>Suricata: Nmap 포트 스캔 탐지 - 자동 차단 대상 (출발지 $(srcip))</description>
+  </rule>
+  <rule id="100251" level="12" ignore="600">
+    <if_sid>20100,20101</if_sid>
+    <id>^1:9000002:|^1:9000003:</id>
+    <description>Suricata: SQLmap/SQL 인젝션 탐지 - 자동 차단 대상 (출발지 $(srcip))</description>
   </rule>
 </group>
