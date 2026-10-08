@@ -40,8 +40,9 @@ Restart-Service -Name WazuhSvc
 ```
 
 ## 4. Manager
-이 저장소 작업에서 룰(100240, 100241)과 자동 차단 설정은 이미 적용돼 있다. 다른 PC라면
-`wazuh-manager-rules-snippet.xml`, `wazuh-manager-active-response-snippet.xml`을 추가하고 검사 후 재시작한다.
+이 저장소 작업에서는 이미 적용돼 있다. 다른 PC라면 `wazuh-manager-rules-snippet.xml`(룰),
+`wazuh-manager-decoder-snippet.xml`(src_ip→srcip 디코더, 없으면 차단이 실패함),
+`wazuh-manager-active-response-snippet.xml`(차단)을 추가하고 검사 후 재시작한다.
 ```powershell
 docker exec wazuh-manager /var/ossec/bin/wazuh-analysisd -t
 docker exec wazuh-manager /var/ossec/bin/wazuh-control restart
