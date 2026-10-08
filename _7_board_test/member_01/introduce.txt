@@ -1,0 +1,6 @@
+이름 또는 닉네임: myeongjundev
+GitHub 사용자명: myeongjundev
+담당 역할: NoBugs 조장, 저장소 준비 및 Pull Request 검토·통합
+관심 분야: Flask 웹 개발, 보안 이벤트 수집과 탐지, 팀 협업
+사용 가능한 기술: Python, Flask, Git/GitHub, Docker 실습, Wazuh·Graylog 연동 실습
+조원들에게 전하고 싶은 한마디: 각자의 작업을 PR로 공유하고 함께 검토하면서 동작하는 결과물을 만들어 봅시다.
