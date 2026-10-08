@@ -1,0 +1,26 @@
+# controllers/seclog.py
+import os, re
+from datetime import datetime
+from flask import current_app
+
+_UNSAFE = re.compile(r'[\s\x00-\x1f\x7f]+')   # 공백·개행·제어문자
+
+def _clean(value, limit=64):
+  text = _UNSAFE.sub('_', str(value or '-'))
+  return text[:limit] or '-'
+
+def write_seclog(event, user, src_ip):
+  """event: login_failed | login_success | login_locked"""
+  path = current_app.config.get('SECURITY_LOG_PATH')
+  if not path:
+    return
+  first_hop = str(src_ip or '').split(',')[0].strip()      # X-Forwarded-For 첫 홉만
+  now = datetime.now()
+  stamp = now.strftime('%Y-%m-%d %H:%M:%S.') + f'{now.microsecond // 1000:03d}'   # ★ 밀리초 필수
+  line = f'{stamp} {event} user={_clean(user)} src_ip={_clean(first_hop, 45)}\n'
+  try:
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, 'a', encoding='utf-8') as f:
+      f.write(line)
+  except OSError:
+    pass   # 로그 파일 문제로 로그인이 멈추면 안 된다

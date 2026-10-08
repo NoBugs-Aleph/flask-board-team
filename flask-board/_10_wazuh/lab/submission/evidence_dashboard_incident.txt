@@ -1,0 +1,24 @@
+# 게시판 보안 대시보드 — 디렉터리 스캔/브루트포스 인시던트 티켓 (src_ip=172.17.144.170)
+
+id          : 63
+severity    : High
+status      : open
+src_ip      : 172.17.144.170
+event_count : 7
+actions     : deny
+student     : lsy
+created_at  : 2026-10-06T12:15:10
+summary     : [인시던트 요약] 출발지 172.17.144.170
+- 관련 이벤트: 7건 (ip-guard×4, wazuh×2, wazuh-block×1)
+- 최초/최종: 2026-10-06 12:15:10 ~ 2026-10-06 16:15:03
+- 취해진 조치: deny
+- 최고 심각도: High
+[타임라인]
+- 2026-10-06 16:15:03 [High/wazuh] [Wazuh 100211] 연습 웹앱 브루트포스 의심 (동일 IP 다수 실패) - 출발지 172.17.144.170 (T1110 Brute Force) (users=wz_test)
+- 2026-10-06 16:14:54 [High/ip-guard] 공격 출발지 자동 차단: 5회 로그인 실패(동일 IP) (users=-)
+- 2026-10-06 16:02:21 [High/ip-guard] 공격 출발지 자동 차단: 5회 로그인 실패(동일 IP) (users=-)
+- 2026-10-06 15:55:07 [High/ip-guard] 공격 출발지 자동 차단: 5회 로그인 실패(동일 IP) (users=-)
+- 2026-10-06 14:26:11 [High/ip-guard] 공격 출발지 자동 차단: 5회 로그인 실패(동일 IP) (users=-)
+- 2026-10-06 12:15:10 [High/wazuh-block] [Wazuh 100211] 연습 웹앱 브루트포스 의심 (동일 IP 다수 실패) - 출발지 172.17.144.170 (T1110 Brute Force) (users=-)
+- 2026-10-06 12:15:10 [High/wazuh] [Wazuh 100211] 연습 웹앱 브루트포스 의심 (동일 IP 다수 실패) - 출발지 172.17.144.170 (T1110 Brute Force) (users=admin)
+

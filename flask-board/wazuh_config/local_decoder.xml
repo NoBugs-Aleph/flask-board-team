@@ -1,0 +1,51 @@
+<!-- Local Decoders -->
+
+<!-- Modify it at your will. -->
+<!-- Copyright (C) 2015, Wazuh Inc. -->
+
+<!--
+  - Allowed static fields:
+  - location   - where the log came from (only on FTS)
+  - srcuser    - extracts the source username
+  - dstuser    - extracts the destination (target) username
+  - user       - an alias to dstuser (only one of the two can be used)
+  - srcip      - source ip
+  - dstip      - dst ip
+  - srcport    - source port
+  - dstport    - destination port
+  - protocol   - protocol
+  - id         - event id
+  - url        - url of the event
+  - action     - event action (deny, drop, accept, etc)
+  - status     - event status (success, failure, etc)
+  - extra_data - Any extra data
+-->
+
+<decoder name="local_decoder_example">
+    <program_name>local_decoder_example</program_name>
+</decoder>
+<!-- 게시판 security.log 한 줄을 해석하는 디코더
+  예) 2026-10-02 15:27:27.258 login_failed user=zz_wz src_ip=198.51.100.10
+  → 이름 webapp-login, 필드 dstuser=zz_wz, srcip=198.51.100.10 -->
+<decoder name="webapp-login">
+  <prematch>login_failed user=</prematch>
+</decoder>
+
+<decoder name="webapp-login-fields">
+  <parent>webapp-login</parent>
+  <regex>user=(\S+) src_ip=(\S+)</regex>
+  <order>dstuser, srcip</order>
+</decoder>
+
+<!-- 게시판 webaccess.log 한 줄을 해석하는 디코더
+  예) 2026-10-06 14:03:21.457 web_access src_ip=172.17.144.170 method=GET path=/admin code=404
+  → 이름 webapp-access, 필드 srcip, extra_data(method), url(path), id(status code) -->
+<decoder name="webapp-access">
+  <prematch>web_access src_ip=</prematch>
+</decoder>
+
+<decoder name="webapp-access-fields">
+  <parent>webapp-access</parent>
+  <regex>src_ip=(\S+) method=(\S+) path=(\S+) code=(\d+)</regex>
+  <order>srcip, extra_data, url, id</order>
+</decoder>

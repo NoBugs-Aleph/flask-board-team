@@ -1,0 +1,72 @@
+##### rule 100231 (스캔) 대표 Alert (총 472건) #####
+{
+  "timestamp": "2026-10-06T07:06:03.972+0000",
+  "rule": {
+    "id": "100231",
+    "level": 10,
+    "description": "연습 웹앱 디렉터리 스캐닝 의심 (동일 IP 단시간 404 다수 - gobuster/dirb)",
+    "mitre": {
+      "id": [
+        "T1595.003"
+      ],
+      "tactic": [
+        "Reconnaissance"
+      ],
+      "technique": [
+        "Wordlist Scanning"
+      ]
+    },
+    "frequency": 10
+  },
+  "agent": {
+    "id": "001",
+    "name": "board-host",
+    "ip": "127.0.0.1"
+  },
+  "decoder": {
+    "name": "webapp-access"
+  },
+  "data": {
+    "srcip": "172.17.144.170",
+    "id": "404",
+    "url": "/layouts",
+    "extra_data": "GET"
+  },
+  "full_log": "2026-10-06 16:05:44.393 web_access src_ip=172.17.144.170 method=GET path=/layouts code=404"
+}
+
+##### rule 100211 (브루트포스) 대표 Alert (총 354건) #####
+{
+  "timestamp": "2026-10-06T07:13:28.116+0000",
+  "rule": {
+    "id": "100211",
+    "level": 10,
+    "description": "연습 웹앱 브루트포스 의심 (동일 IP 다수 실패)",
+    "mitre": {
+      "id": [
+        "T1110"
+      ],
+      "tactic": [
+        "Credential Access"
+      ],
+      "technique": [
+        "Brute Force"
+      ]
+    },
+    "frequency": 6
+  },
+  "agent": {
+    "id": "001",
+    "name": "board-host",
+    "ip": "127.0.0.1"
+  },
+  "decoder": {
+    "name": "webapp-login"
+  },
+  "data": {
+    "srcip": "172.17.144.170",
+    "dstuser": "wz_test"
+  },
+  "full_log": "2026-10-06 16:13:27.156 login_failed user=wz_test src_ip=172.17.144.170"
+}
+
