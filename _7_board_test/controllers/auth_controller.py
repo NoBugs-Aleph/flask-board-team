@@ -1,0 +1,122 @@
+from flask import Blueprint, jsonify, request
+from flask_jwt_extended import (
+    create_access_token,
+    set_access_cookies,
+    unset_jwt_cookies,
+)
+from werkzeug.security import check_password_hash, generate_password_hash
+
+from controllers.authz import current_user
+from controllers.gelf import send_gelf
+from controllers.seclog import write_seclog
+from extensions import db
+from models import ROLE_USER, User
+
+auth_bp = Blueprint("auth", __name__, url_prefix="/api/auth")
+
+
+@auth_bp.post("/register")
+def register():
+    data = request.get_json(silent=True) or {}
+    username = str(data.get("username") or "").strip()
+    password = str(data.get("password") or "")
+    if not username or not password:
+        return jsonify({"msg": "username, password는 필수입니다."}), 400
+    if User.query.filter_by(username=username).first():
+        return jsonify({"msg": "이미 존재하는 사용자입니다."}), 400
+    # 가입은 언제나 일반 등급으로 시작한다. 요청 본문의 role은 무시한다.
+    user = User(
+        username=username[:80],
+        password=generate_password_hash(password),
+        role=ROLE_USER,
+    )
+    db.session.add(user)
+    db.session.commit()
+    return jsonify({"msg": "회원가입 성공", "role": user.role, "role_name": user.role_name}), 201
+
+
+@auth_bp.post("/login")
+def login():
+    data = request.get_json(silent=True) or {}
+    username = str(data.get("username") or "").strip()
+    password = str(data.get("password") or "")
+    user = User.query.filter_by(username=username).first()
+    forwarded_for = request.headers.get("X-Forwarded-For", "")
+    src_ip = (
+        forwarded_for.split(",", 1)[0].strip()
+        if forwarded_for
+        else (request.remote_addr or "0.0.0.0")
+    )
+
+    if user and user.is_locked:
+        send_gelf(
+            f"login attempt on LOCKED account '{username}'",
+            rule="login-bruteforce",
+            username=username,
+            src_ip=src_ip,
+            locked="1",
+        )
+        write_seclog("login_failed", username, src_ip)  # 잠긴 계정 시도도 실패로 기록
+        return (
+            jsonify(
+                {
+                    "msg": "계정이 잠겨 있습니다. 관리자에게 문의하세요.",
+                    "locked": True,
+                }
+            ),
+            423,
+        )
+
+    if not user or not check_password_hash(user.password, password):
+        if user:
+            user.failed_logins = (user.failed_logins or 0) + 1
+            db.session.commit()
+        send_gelf(
+            f"failed login for '{username}' from {src_ip}",
+            rule="login-bruteforce",
+            username=username or "(unknown)",
+            src_ip=src_ip,
+            count=1,
+        )
+        write_seclog("login_failed", username or "(unknown)", src_ip)
+        return jsonify({"msg": "아이디 또는 비밀번호가 잘못되었습니다."}), 401
+
+    if user.failed_logins:
+        user.failed_logins = 0
+        db.session.commit()
+    # 성공도 남긴다. 실패만 모으면 결국 뚫린 계정을 알 수 없다.
+    # 계정명·출발지·등급만 보내고 비밀번호와 토큰은 절대 넣지 않는다.
+    send_gelf(
+        f"successful login for '{username}' from {src_ip}",
+        rule="login-success",
+        username=username,
+        src_ip=src_ip,
+        role=user.role_code,
+    )
+    write_seclog("login_success", username, src_ip)
+    token = create_access_token(identity=str(user.id))
+    response = jsonify(
+        access_token=token,
+        username=user.username,
+        role=user.role,
+        role_name=user.role_name,
+    )
+    # 페이지 이동(GET)에서도 서버가 등급을 확인할 수 있도록 쿠키에도 실어 보낸다.
+    set_access_cookies(response, token)
+    return response
+
+
+@auth_bp.post("/logout")
+def logout():
+    response = jsonify({"msg": "로그아웃되었습니다."})
+    unset_jwt_cookies(response)
+    return response
+
+
+@auth_bp.get("/me")
+def me():
+    """현재 로그인 상태와 등급을 알려준다. 비로그인도 200으로 답한다."""
+    user = current_user()
+    if user is None:
+        return jsonify({"authenticated": False, "user": None})
+    return jsonify({"authenticated": True, "user": user.to_dict()})
