@@ -1,7 +1,8 @@
 {
   "source_repository": "https://github.com/myeongjundev/flask-board",
   "source_commit": "d1801960bd11e074d25b61529a562c90a479617e",
-  "target_folder": "_7_board_test",
+  "target_folder": "flask-board",
   "tracked_file_count": 143,
-  "private_runtime_files_copied": false
+  "private_runtime_files_copied": false,
+  "initial_target_folder": "_7_board_test"
 }

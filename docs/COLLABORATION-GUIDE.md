@@ -6,21 +6,25 @@
 
 1. `myeongjundev` 계정이 소유한 `NoBugs-Aleph` 조직을 GitHub Free로 생성합니다.
 2. 조직 안에 공개 저장소 `flask-board-team`을 만듭니다. 기존 개인 저장소는 유지합니다.
-3. 이 폴더의 `main`을 업로드합니다. GitHub에서 `_7_board_test/app.py`와 이 안내서가 있는지 확인합니다.
+3. 이 폴더의 `main`을 업로드합니다. GitHub에서 `flask-board/app.py`와 이 안내서가 있는지 확인합니다.
 4. 팀원에게 생성된 저장소 주소 <https://github.com/NoBugs-Aleph/flask-board-team>를 공유합니다.
 
 2026-10-08에 조직과 공개 저장소 생성 및 `main` 업로드를 확인했습니다. 조원은 위 주소에서 Fork를 시작하면 됩니다.
 
 공개 저장소는 조원이 조직 구성원이 아니어도 Fork하고 PR을 보낼 수 있습니다. 이번 실습은 개인 Fork를 사용합니다. 조직 가입 초대와 저장소 직접 쓰기 권한은 별도 절차입니다.
 
+세 조원에게 일반 멤버 초대를 전송했습니다. 본인 계정으로 [조직 페이지](https://github.com/NoBugs-Aleph)에 접속해 초대를 수락한 뒤 진행하세요. 강사 예시의 `_7_board_test`는 이 저장소의 `flask-board` 폴더에 해당합니다.
+
+실제 예시: [조장 Fork](https://github.com/myeongjundev/flask-board-team), [소개 PR #1](https://github.com/NoBugs-Aleph/flask-board-team/pull/1). 이 PR은 폴더명 변경 전에 제출되어 변경 이력에는 `_7_board_test/member_01/introduce.txt`로 표시됩니다. 현재 `main`의 파일 위치는 `flask-board/member_01/introduce.txt`입니다.
+
 ## 2. 조원별 폴더 배정
 
 | 사용자 | 생성할 파일 | 권장 브랜치 |
 | --- | --- | --- |
-| myeongjundev | `_7_board_test/member_01/introduce.txt` | `intro/myeongjundev` |
-| chacha1650a | `_7_board_test/member_02/introduce.txt` | `intro/chacha1650a` |
-| shk12170-dev | `_7_board_test/member_03/introduce.txt` | `intro/shk12170-dev` |
-| whiteclover0542 | `_7_board_test/member_04/introduce.txt` | `intro/whiteclover0542` |
+| myeongjundev | `flask-board/member_01/introduce.txt` | `intro/myeongjundev` |
+| chacha1650a | `flask-board/member_02/introduce.txt` | `intro/chacha1650a` |
+| shk12170-dev | `flask-board/member_03/introduce.txt` | `intro/shk12170-dev` |
+| whiteclover0542 | `flask-board/member_04/introduce.txt` | `intro/whiteclover0542` |
 
 조원은 본인 폴더만 생성·수정합니다. 아래 예시는 **chacha1650a** 기준이므로 사용자명, 폴더, 브랜치를 자신의 값으로 바꿉니다. 조장은 조직 원본을 Clone해 별도 브랜치에서 본인 소개를 작성할 수도 있습니다. 조장도 Fork 제출이 요구되면 개인 계정에 먼저 Fork합니다.
 
@@ -46,7 +50,7 @@ git switch -c intro/chacha1650a
 저장소 루트에서 본인 폴더와 UTF-8 파일을 생성합니다.
 
 ```powershell
-New-Item -ItemType Directory -Path .\_7_board_test\member_02
+New-Item -ItemType Directory -Path .\flask-board\member_02
 @'
 이름 또는 닉네임: 직접 작성
 GitHub 사용자명: chacha1650a
@@ -54,8 +58,8 @@ GitHub 사용자명: chacha1650a
 관심 분야: 직접 작성
 사용 가능한 기술: 직접 작성
 조원들에게 전하고 싶은 한마디: 직접 작성
-'@ | Set-Content -LiteralPath .\_7_board_test\member_02\introduce.txt -Encoding UTF8
-Get-Content -LiteralPath .\_7_board_test\member_02\introduce.txt -Encoding UTF8
+'@ | Set-Content -LiteralPath .\flask-board\member_02\introduce.txt -Encoding UTF8
+Get-Content -LiteralPath .\flask-board\member_02\introduce.txt -Encoding UTF8
 ```
 
 위 내용은 양식입니다. 제출 전에 본인의 실제 내용으로 편집하세요. 파일에는 개인 연락처나 인증 정보를 넣지 않습니다. 폴더가 이미 있다면 `New-Item` 단계를 생략합니다.
@@ -64,7 +68,7 @@ Get-Content -LiteralPath .\_7_board_test\member_02\introduce.txt -Encoding UTF8
 
 ```powershell
 git status --short
-git add -- _7_board_test/member_02/introduce.txt
+git add -- flask-board/member_02/introduce.txt
 git diff --cached --name-only
 git diff --cached
 git commit -m "docs: add chacha1650a introduction"
@@ -128,7 +132,7 @@ git status --short
 flask-board-team/
 ├── README.md
 ├── docs/
-└── _7_board_test/
+└── flask-board/
     ├── app.py
     ├── templates/
     ├── 기존 게시판 파일

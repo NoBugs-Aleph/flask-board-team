@@ -6,13 +6,15 @@
 
 - [x] 조직 생성: `NoBugs-Aleph` (표시 이름 NoBugs), GitHub Free, 관리자 `myeongjundev`
 - [x] 조직 원본 저장소 생성 및 업로드 — <https://github.com/NoBugs-Aleph/flask-board-team>
-- [x] `_7_board_test`에 기존 게시판 소스 복사
+- [x] `flask-board`에 기존 게시판 소스 복사
 - [x] 복사본 게시판 정상 실행 및 기본 기능 확인 — [검증 기록](VERIFICATION.md)
 - [ ] 조원에게 저장소 주소와 [길라잡이](COLLABORATION-GUIDE.md) 공유
 
+조직 멤버 초대는 세 조원 모두 전송 완료(2026-10-08), 수락 여부는 미확인입니다. 각자 [조직 페이지](https://github.com/NoBugs-Aleph)에 접속해 수락해야 합니다.
+
 | 사용자 | Fork URL | 소개 파일 | PR URL | Merged/커밋 및 캡처 |
 | --- | --- | --- | --- | --- |
-| myeongjundev | 미확인 | member_01/introduce.txt | 미확인 | 미확인 |
+| myeongjundev | [Fork](https://github.com/myeongjundev/flask-board-team) | member_01/introduce.txt | [PR #1](https://github.com/NoBugs-Aleph/flask-board-team/pull/1) | Merged, `73b8b5f`; 캡처 별도 확보 |
 | chacha1650a | 미확인 | member_02/introduce.txt | 미확인 | 미확인 |
 | shk12170-dev | 미확인 | member_03/introduce.txt | 미확인 | 미확인 |
 | whiteclover0542 | 미확인 | member_04/introduce.txt | 미확인 | 미확인 |
@@ -43,4 +45,4 @@
 - [ ] Wazuh 화면에서 현재 Manager/Agent 상태와 보안 이벤트 확인
 - [ ] 공격별 Alert, 시간대별 이벤트 발생 화면 제출
 
-수집되지 않는 팀원 PC는 [_7_board_test/docs/WAZUH-LLM-VERIFICATION-GUIDE.md](../_7_board_test/docs/WAZUH-LLM-VERIFICATION-GUIDE.md) 순서대로 진단합니다. n8n 성공 표시만으로 Wazuh 수집·공격 탐지·자동 차단이 모두 검증된 것은 아닙니다.
+수집되지 않는 팀원 PC는 [flask-board/docs/WAZUH-LLM-VERIFICATION-GUIDE.md](../flask-board/docs/WAZUH-LLM-VERIFICATION-GUIDE.md) 순서대로 진단합니다. n8n 성공 표시만으로 Wazuh 수집·공격 탐지·자동 차단이 모두 검증된 것은 아닙니다.
