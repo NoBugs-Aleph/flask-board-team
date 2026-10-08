@@ -47,11 +47,11 @@
 | 1 | `whiteclover0542` 로컬 브랜치 생성 | ✅ |
 | 2 | `member_04/introduce.md` 자기소개 작성 (6개 항목) | ✅ |
 | 3 | 소개 파일 커밋 | ✅ |
-| 4 | 조장에게 저장소 Write 권한 요청 | 🟡 |
-| 5 | 권한 받은 뒤 `git push -u origin whiteclover0542` | ⬜ |
-| 6 | GitHub에서 PR 생성 (base: `main` ← compare: `whiteclover0542`) | ⬜ |
-| 7 | PR URL 조장에게 전달 | ⬜ |
-| 8 | 조장 Merge 후 `git switch main` → `git pull --ff-only origin main` | ⬜ |
+| 4 | 조장에게 저장소 Write 권한 요청 | ✅ |
+| 5 | 권한 받은 뒤 `git push -u origin whiteclover0542` | ✅ |
+| 6 | GitHub에서 PR 생성 (PR #3) | ✅ |
+| 7 | PR URL 조장에게 전달 | ✅ |
+| 8 | 조장 Merge (PR #3 merged) 후 main 최신화 | ✅ |
 | 9 | 제출 증빙 캡처 (PR Files changed / Merged 표시) | ⬜ |
 
 ---
