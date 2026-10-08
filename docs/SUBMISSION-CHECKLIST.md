@@ -16,7 +16,7 @@
 | --- | --- | --- | --- | --- |
 | myeongjundev | [Fork](https://github.com/myeongjundev/flask-board-team) | member_01/introduce.txt | [PR #1](https://github.com/NoBugs-Aleph/flask-board-team/pull/1) | Merged, `73b8b5f`; 캡처 별도 확보 |
 | chacha1650a | 미확인 | member_02/introduce.txt | 미확인 | 미확인 |
-| shk12170-dev | 미확인 | member_03/introduce.txt | 미확인 | 미확인 |
+| shk12170-dev | 조직 저장소 브랜치에서 작업(개인 Fork 아님) | member_03/introduce.txt | [PR #5](https://github.com/NoBugs-Aleph/flask-board-team/pull/5) | Merged, `55d50ac`; 추가 [PR #6](https://github.com/NoBugs-Aleph/flask-board-team/pull/6) Merged(Wazuh 실습 자료), `f5e5b59` |
 | whiteclover0542 | 미확인 | member_04/introduce.txt | 미확인 | 미확인 |
 
 - [ ] 각자의 Fork·Commit·Push·PR 기록 확인
