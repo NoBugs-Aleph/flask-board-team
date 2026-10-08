@@ -25,9 +25,9 @@ sudo suricata -T -c /etc/suricata/suricata.yaml -S /etc/suricata/lab.rules -l /t
 ```
 `Configuration provided was successfully loaded`가 나오면 검사 통과. 이어서 실행(이 터미널은 계속 켜 둔다):
 ```bash
-sudo suricata -c /etc/suricata/suricata.yaml -i eth0 -S /etc/suricata/lab.rules -l /mnt/c/suricata-logs
+sudo suricata -c /etc/suricata/suricata.yaml -i eth0 -S /etc/suricata/lab.rules -l /mnt/c/suricata-logs --set stats.enabled=no
 ```
-`-S`는 이 규칙 파일만 사용한다는 뜻이라 다른 설정을 고칠 필요가 없다. 중지는 `Ctrl+C`.
+`-S`는 이 규칙 파일만 사용한다는 뜻이라 다른 설정을 고칠 필요가 없다. `--set stats.enabled=no`는 통계 로그를 꺼서 Wazuh의 `Too many fields for JSON decoder` 오류를 막는다. 중지는 `Ctrl+C`.
 
 ## 3. Windows: Agent가 eve.json 읽게 하기 (관리자 PowerShell)
 `wazuh-agent-ossec-snippet.xml`의 `<localfile>` 블록을 `C:\Program Files (x86)\ossec-agent\ossec.conf`의 `</ossec_config>` 바로 위에 붙여 넣고 저장한 뒤:
