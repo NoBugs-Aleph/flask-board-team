@@ -1,0 +1,38 @@
+<!-- member_04 추가: Suricata 텍스트 수집 룰 (173 §4-4). 텍스트 수집 방식(decoded_as suricata-alert).
+     ID 100240~100243 — 팀 기존 100210/100211, 100220~100224, 100230~100233 와 안 겹친다. -->
+<group name="suricata,ids,local,">
+
+  <!-- Suricata 기본 Alert -->
+  <rule id="100240" level="3">
+    <decoded_as>suricata-alert</decoded_as>
+    <description>Suricata IDS Alert 발생: $(srcip) $(signature)</description>
+    <group>ids_alert,</group>
+  </rule>
+
+  <!-- Nmap 포트 스캔 탐지 -->
+  <rule id="100241" level="10">
+    <if_sid>100240</if_sid>
+    <field name="signature" type="pcre2">(?i)(portscan|nmap|port scan)</field>
+    <description>Suricata Nmap 포트 스캔 탐지: $(srcip)</description>
+    <mitre><id>T1046</id></mitre>
+    <group>ids_alert,nmap,port_scan,</group>
+  </rule>
+
+  <!-- SQLmap SQL Injection 탐지 -->
+  <rule id="100242" level="12">
+    <if_sid>100240</if_sid>
+    <field name="signature" type="pcre2">(?i)(sqlmap|sql injection)</field>
+    <description>Suricata SQL Injection 탐지: $(srcip)</description>
+    <mitre><id>T1190</id></mitre>
+    <group>ids_alert,sqlmap,sql_injection,</group>
+  </rule>
+
+  <!-- 동일 IP 가 30초 안에 IDS 경보 5회 초과 -->
+  <rule id="100243" level="12" frequency="6" timeframe="30" ignore="60">
+    <if_matched_sid>100240</if_matched_sid>
+    <same_source_ip />
+    <description>Suricata IDS 경보 폭주 - 동일 IP 5회 초과</description>
+    <group>ids_alert,attack_frequency,</group>
+  </rule>
+
+</group>

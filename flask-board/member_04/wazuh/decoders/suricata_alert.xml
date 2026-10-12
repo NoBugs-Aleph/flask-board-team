@@ -1,0 +1,13 @@
+<!-- member_04 추가: Suricata IDS 텍스트 수집 디코더 (173 §4-3, 텍스트 수집 방식)
+     포워더가 eve.json 알림을 'suricata_alert src_ip=.. sid=.. signature=..' 한 줄로 변환.
+     팀 flask_board_signals.xml 와 같은 pcre2 스타일. 기존 디코더는 그대로 둔다.
+     예) 2026-10-12 13:06:56.111 suricata_alert src_ip=203.0.113.77 sid=10 signature=LOCAL Portscan nmap
+     ★ type="pcre2" 필수(signature 공백 → (.+)$ 끝까지), signature 는 동적 필드(룰 <field> 매칭용) -->
+<decoder name="suricata-alert">
+  <prematch type="pcre2">suricata_alert </prematch>
+</decoder>
+<decoder name="suricata-alert-fields">
+  <parent>suricata-alert</parent>
+  <regex type="pcre2" offset="after_parent">src_ip=(\S+) sid=(\S+) signature=(.+)$</regex>
+  <order>srcip,id,signature</order>
+</decoder>
