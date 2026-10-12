@@ -31,6 +31,7 @@ GitHub Free의 공개 저장소입니다. 조장 `myeongjundev`가 조직을 관
 - [기존 게시판 전체 README](./flask-board/README.md)
 - [팀원 PC Wazuh 수집 문제 검증 가이드](./flask-board/docs/WAZUH-LLM-VERIFICATION-GUIDE.md)
 - [10-12 최신 수업 적용·팀원 실행 및 검증 방법](./flask-board/docs/LESSON-UPDATES-20261012.md)
+- [10-12 전체 변경 현황·DB 연결 복구·Suricata 코드](docs/CHANGE-STATUS-20261012.md)
 
 ## 게시판 빠른 실행 — 협업 기능 확인용
 
