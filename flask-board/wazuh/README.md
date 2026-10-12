@@ -21,6 +21,10 @@
 규칙 ID 충돌 확인 후 [설치·검증 절차](../docs/LESSON-UPDATES-20261012.md)를 따릅니다.
 `wazuh-manager2`는 강사님 환경의 이름이므로 본인 PC의 실제 컨테이너 이름을 사용합니다.
 
+개인 게시판과 팀 게시판을 동시에 쓰는 PC는
+[두 경로 Agent 설정 예시](agent-config-windows-dual-board.example.conf)를 사용할 수 있습니다.
+[개인 경로 설정 안내](../docs/WAZUH-PERSONAL-PATH-GUIDE.md)의 두 게시판 수집 절차를 따릅니다.
+
 ## 설정 파일 위치
 
 수업에서 생성한 파일은 게시판 루트의 `config/`에 있습니다.

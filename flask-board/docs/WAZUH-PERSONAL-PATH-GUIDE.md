@@ -111,6 +111,48 @@ docker exec $ManagerName /var/ossec/bin/verify-agent-conf
 
 ## 3. Windows Agent에 실제로 적용됐는지 확인
 
+### 개인 게시판과 팀 게시판을 함께 수집하기
+
+두 게시판을 모두 사용하는 PC는 `<localfile>`을 두 개 두고, `<syscheck>` 안에도
+`<directories>`를 두 개 둡니다. [두 게시판 설정 예시](../wazuh/agent-config-windows-dual-board.example.conf)는
+이 PC의 개인 `C:\SKT aleph\flask-board`와 팀 `C:\SKT aleph\flask-board-team\flask-board`를 함께 수집합니다.
+다른 PC에서는 네 경로를 자신의 실제 폴더로 바꿉니다.
+
+```xml
+<agent_config os="Windows">
+  <localfile>
+    <location>C:\SKT aleph\flask-board-team\flask-board\logs\security.log</location>
+    <log_format>syslog</log_format>
+  </localfile>
+  <localfile>
+    <location>C:\SKT aleph\flask-board\logs\security.log</location>
+    <log_format>syslog</log_format>
+  </localfile>
+  <syscheck>
+    <directories realtime="yes" check_all="yes">C:\SKT aleph\flask-board-team\flask-board\templates</directories>
+    <directories realtime="yes" check_all="yes">C:\SKT aleph\flask-board\templates</directories>
+  </syscheck>
+</agent_config>
+```
+
+Manager의 `flask-board` 그룹 설정에 추가하고 위의 백업·문법 검사·동기화 확인 절차를 따릅니다.
+2026-10-12에 이 PC의 Agent 001에 위 설정을 적용했습니다.
+11:27 KST에 Agent 공유 설정에 두 로그·두 폴더가 모두 전달됐고,
+Agent 로그의 `Analyzing file`과 `Monitoring path`에서 각각의 경로를 확인했습니다.
+11:27:31에는 `Real-time file integrity monitoring started`가 기록됐습니다.
+Agent는 synchronized이고 Windows 서비스는 Running입니다.
+기존 설정은 `backup/wazuh-dual-board-20261012-112626/agent.conf.original`에 백업했습니다.
+이 백업은 Git 제외 경로입니다.
+기존 수집 경로는 유지하며, 게시판 프로세스가 각자의 `security.log`에 실제로 로그를 기록해야 합니다.
+`SECURITY_LOG_PATH`가 비어 있거나 GELF만 전송하는 모드에서는 파일 수집으로 사건이 생기지 않습니다.
+
+기존 팀 예제의 일부 한글 파일명에는 Agent의 non-UTF8 이름 경고가 계속 표시됩니다.
+이 경고는 경로 추가 전에도 있었으며, 해당 파일별 FIM 감시까지 정상이라는 뜻은 아닙니다.
+이번 확인 범위는 두 로그의 수집 시작과 두 디렉터리의 실시간 감시 등록입니다.
+
+[Wazuh 공식 중앙 설정 문서](https://documentation.wazuh.com/current/user-manual/reference/centralized-configuration.html)를
+참고하고, 실제 문법 검사는 수업 버전 4.9.0의 `verify-agent-conf`로 수행했습니다.
+
 동기화에는 시간이 걸릴 수 있습니다. 다음 출력에서 본인 경로를 확인합니다.
 Agent 설치 위치가 다르면 `$AgentInstall`도 수정합니다.
 

@@ -16,6 +16,11 @@ Wazuh 4.9.0 격리 컨테이너에서 추가 규칙 `100230`~`100233` 매칭도 
 보존하여 재시작했고, 두 포트에서 최신 페이징 API의 응답 필드를 확인했습니다.
 개인 게시판 프로세스와 운영 Wazuh 컨테이너는 재시작 대상에서 제외했습니다.
 
+11:27 KST에는 사용자 요청으로 Wazuh `flask-board` 그룹에 개인 게시판 경로도 추가했습니다.
+`verify-agent-conf`가 통과했고 Agent 001의 공유 설정·수집 로그에서 두 `security.log`와
+두 `templates` 경로를 확인했습니다. Agent는 synchronized, Windows 서비스는 Running이며
+실시간 FIM 시작도 확인했습니다. [두 게시판 설정 예시](../flask-board/wazuh/agent-config-windows-dual-board.example.conf)에 보관했습니다.
+
 아래 내용은 10-08 당시 기록입니다.
 
 검증일: 2026-10-08, Windows / PowerShell.
