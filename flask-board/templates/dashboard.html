@@ -9,6 +9,7 @@
 <body class="bg-gray-50 text-gray-800 min-h-screen flex flex-col">
   {% include 'partials/_nav.html' %}
   {% include 'partials/_pager.html' %}
+  {% include 'partials/_table_sort.html' %}
 
   <main class="max-w-6xl mx-auto px-4 py-6 flex-1 w-full">
     <div class="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-3 mb-5">
@@ -82,19 +83,23 @@
             <button data-status="open" class="inc-btn px-3 py-1.5 rounded-md">열림</button>
             <button data-status="closed" class="inc-btn px-3 py-1.5 rounded-md">종료</button>
           </div>
+          <select id="incident-severity" aria-label="티켓 심각도" class="rounded-lg border border-gray-300 px-3 py-2 text-sm">
+            <option value="">전체 심각도</option>
+            <option>Critical</option><option>High</option><option>Medium</option><option>Low</option>
+          </select>
         </div>
       </div>
 
       <table class="hidden md:table w-full table-fixed text-sm">
-        <thead class="bg-gray-50 text-gray-500 text-xs">
+        <thead id="incident-head" class="bg-gray-50 text-gray-500 text-xs">
           <tr>
-            <th class="w-14 text-left px-4 py-2.5 font-medium">#</th>
-            <th class="w-20 text-left px-2 py-2.5 font-medium">상태</th>
-            <th class="w-20 text-left px-2 py-2.5 font-medium">심각도</th>
-            <th class="w-36 text-left px-2 py-2.5 font-medium">출발지 IP</th>
-            <th class="w-16 text-right px-2 py-2.5 font-medium">이벤트</th>
+            <th data-sort="id" class="w-14 text-left px-4 py-2.5 font-medium">#</th>
+            <th data-sort="status" class="w-20 text-left px-2 py-2.5 font-medium">상태</th>
+            <th data-sort="severity" class="w-20 text-left px-2 py-2.5 font-medium">심각도</th>
+            <th data-sort="src_ip" class="w-36 text-left px-2 py-2.5 font-medium">출발지 IP</th>
+            <th data-sort="event_count" class="w-20 text-right px-2 py-2.5 font-medium">이벤트</th>
             <th class="text-left px-4 py-2.5 font-medium">제목 · 조치</th>
-            <th class="w-40 text-left px-2 py-2.5 font-medium">생성 / 종료</th>
+            <th data-sort="created_at" class="w-40 text-left px-2 py-2.5 font-medium">생성 / 종료</th>
             <th class="w-8 px-2"></th>
           </tr>
         </thead>
@@ -103,6 +108,7 @@
         </tbody>
       </table>
       <ul id="incident-cards" class="md:hidden divide-y divide-gray-100"></ul>
+      <div id="incident-pager" class="flex flex-col sm:flex-row items-center justify-between gap-2 px-4 py-3 border-t border-gray-100"></div>
 
       <p class="px-4 py-2.5 text-xs text-gray-400 border-t border-gray-100">
         읽기 전용 화면입니다. 티켓 생성·종료는 관리자 API(<code>/api/admin/incident</code>, <code>/api/admin/incident/close</code>)에서 합니다.
@@ -134,17 +140,21 @@
             <option value="50">50건씩</option>
           </select>
         </div>
+        <select id="event-severity" aria-label="이벤트 심각도" class="rounded-lg border border-gray-300 px-3 py-2 text-sm">
+          <option value="">전체 심각도</option>
+          <option>Critical</option><option>High</option><option>Medium</option><option>Low</option>
+        </select>
       </div>
 
       {# 넓은 화면: 고정 폭 표. 사유만 남는 폭을 차지하고 말줄임한다. #}
       <table class="hidden md:table w-full table-fixed text-sm">
-        <thead class="bg-gray-50 text-gray-500 text-xs">
+        <thead id="event-head" class="bg-gray-50 text-gray-500 text-xs">
           <tr>
-            <th class="w-44 text-left px-4 py-2.5 font-medium">시각</th>
-            <th class="w-20 text-left px-2 py-2.5 font-medium">판정</th>
-            <th class="w-20 text-left px-2 py-2.5 font-medium">심각도</th>
-            <th class="w-28 text-left px-2 py-2.5 font-medium">출처</th>
-            <th class="w-44 text-left px-2 py-2.5 font-medium">대상 · 출발지</th>
+            <th data-sort="created_at" class="w-44 text-left px-4 py-2.5 font-medium">시각</th>
+            <th data-sort="decision" class="w-20 text-left px-2 py-2.5 font-medium">판정</th>
+            <th data-sort="severity" class="w-20 text-left px-2 py-2.5 font-medium">심각도</th>
+            <th data-sort="source" class="w-28 text-left px-2 py-2.5 font-medium">출처</th>
+            <th data-sort="src_ip" class="w-44 text-left px-2 py-2.5 font-medium">대상 · 출발지</th>
             <th class="text-left px-2 py-2.5 font-medium">사유</th>
             <th class="w-8 px-2"></th>
           </tr>
@@ -178,7 +188,7 @@
     };
     const sourceLabel = value => SOURCE_LABEL[value] || value || 'unknown';
 
-    const state = { page: 1, pageSize: 20, decision: '', source: '', student: '', q: '' };
+    const state = { page: 1, pageSize: 20, sort: 'created_at', order: 'desc', severity: '', decision: '', source: '', student: '', q: '' };
     const openRows = new Set();
 
     const badge = decision => decision === 'deny'
@@ -194,6 +204,7 @@
       if (merged.decision) params.set('decision', merged.decision);
       if (merged.source) params.set('source', merged.source);
       if (merged.q) params.set('q', merged.q);
+      if (merged.severity) params.set('severity', merged.severity);
       return params;
     }
     async function readJson(url) {
@@ -225,7 +236,7 @@
     }
 
     async function loadSummary() {
-      const params = buildQuery({ decision: '', source: '', q: '' });
+      const params = buildQuery({ decision: '', source: '', q: '', severity: '' });
       const data = await readJson('/api/security/events/summary?' + params);
       const deny = data.by_decision?.deny || 0;
       const allow = data.by_decision?.allow || 0;
@@ -326,8 +337,10 @@
 
     async function loadEvents() {
       const params = buildQuery();
-      params.set('limit', state.pageSize);
-      params.set('offset', (state.page - 1) * state.pageSize);
+      params.set('page', state.page);
+      params.set('per_page', state.pageSize);
+      params.set('sort', state.sort);
+      params.set('order', state.order);
       const data = await readJson('/api/security/events?' + params);
       const total = data.total ?? data.count;
       // 필터를 좁혀 현재 쪽이 범위를 벗어나면 마지막 쪽으로 돌아간다.
@@ -336,13 +349,14 @@
 
       document.getElementById('event-total').textContent = `${total}건`;
       renderEvents(data.events || []);
+      paintSortHeaders(document.getElementById('event-head'), state);
       renderPager(document.getElementById('pager'), {
         page: state.page, pageSize: state.pageSize, total,
         onChange: page => { state.page = page; reload({ summary: false }); },
       });
     }
 
-    const incidentState = { status: '' };
+    const incidentState = { status: '', severity: '', page: 1, pageSize: 20, sort: 'created_at', order: 'desc' };
     const openIncidents = new Set();
     const incidentBadge = status => status === 'open'
       ? '<span class="inline-flex px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 text-xs font-medium">열림</span>'
@@ -351,7 +365,7 @@
       <pre class="mt-1 text-xs text-gray-700 whitespace-pre-wrap break-words font-sans">${escapeHtml(incident.summary || '-')}</pre>`;
 
     async function loadIncidentSummary() {
-      const params = buildQuery({ decision: '', source: '', q: '' });
+      const params = buildQuery({ decision: '', source: '', q: '', severity: '' });
       const data = await readJson('/api/security/incidents/summary?' + params);
       const byStatus = data.by_status || {};
       document.getElementById('inc-open').textContent = byStatus.open || 0;
@@ -364,7 +378,6 @@
     function renderIncidents(incidents) {
       const rows = document.getElementById('incident-rows');
       const cards = document.getElementById('incident-cards');
-      document.getElementById('incident-total').textContent = `${incidents.length}건`;
       if (!incidents.length) {
         rows.innerHTML = '<tr><td colspan="8" class="px-4 py-10 text-center text-gray-400">티켓이 없습니다.</td></tr>';
         cards.innerHTML = '<li class="px-4 py-10 text-center text-gray-400">티켓이 없습니다.</li>';
@@ -414,11 +427,29 @@
     }
 
     async function loadIncidents() {
-      const params = buildQuery({ decision: '', source: '', q: '' });
+      const params = buildQuery({ decision: '', source: '', q: '', severity: incidentState.severity });
       if (incidentState.status) params.set('status', incidentState.status);
-      params.set('limit', 50);
+      params.set('page', incidentState.page);
+      params.set('per_page', incidentState.pageSize);
+      params.set('sort', incidentState.sort);
+      params.set('order', incidentState.order);
       const data = await readJson('/api/security/incidents?' + params);
+      if (incidentState.page > data.total_pages) {
+        incidentState.page = data.total_pages;
+        return loadIncidents();
+      }
+      document.getElementById('incident-total').textContent = `${data.total}건`;
       renderIncidents(data.incidents || []);
+      paintSortHeaders(document.getElementById('incident-head'), incidentState);
+      renderPager(document.getElementById('incident-pager'), {
+        page: incidentState.page, pageSize: incidentState.pageSize, total: data.total,
+        onChange: page => { incidentState.page = page; reloadIncidents(); },
+      });
+    }
+
+    async function reloadIncidents() {
+      clearError();
+      try { await loadIncidents(); } catch (error) { showError(error); }
     }
 
     function syncIncidentControls() {
@@ -443,6 +474,7 @@
 
     function setFilter(patch) {
       Object.assign(state, patch, { page: 1 });
+      if ('student' in patch) incidentState.page = 1;
       // 검색창은 IP 막대처럼 다른 곳에서 검색어를 바꿀 때만 맞춘다.
       // 다시 불러오는 사이 입력 중인 글자를 덮어쓰지 않기 위해서다.
       const search = document.getElementById('search');
@@ -471,6 +503,11 @@
     document.getElementById('refresh-btn').addEventListener('click', () => reload({ students: true }));
     document.getElementById('student-filter').addEventListener('change', event => setFilter({ student: event.target.value }));
     document.getElementById('source-filter').addEventListener('change', event => setFilter({ source: event.target.value }));
+    document.getElementById('event-severity').addEventListener('change', event => setFilter({ severity: event.target.value }));
+    document.getElementById('incident-severity').addEventListener('change', event => {
+      Object.assign(incidentState, { severity: event.target.value, page: 1 });
+      reloadIncidents();
+    });
     document.getElementById('search').addEventListener('input', debounce(event => setFilter({ q: event.target.value.trim() })));
     document.getElementById('page-size').addEventListener('change', event => setFilter({ pageSize: Number(event.target.value) }));
     document.querySelectorAll('.filter-btn').forEach(button => button.addEventListener('click', () => {
@@ -484,6 +521,7 @@
 
     document.querySelectorAll('.inc-btn').forEach(button => button.addEventListener('click', async () => {
       incidentState.status = button.dataset.status;
+      incidentState.page = 1;
       openIncidents.clear();
       syncIncidentControls();
       clearError();
@@ -496,6 +534,8 @@
       if (event.target.checked) timer = setInterval(() => reload(), 30000);
     });
 
+    bindSortHeaders(document.getElementById('event-head'), state, () => reload({ summary: false }));
+    bindSortHeaders(document.getElementById('incident-head'), incidentState, reloadIncidents);
     syncControls();
     syncIncidentControls();
     reload({ students: true });

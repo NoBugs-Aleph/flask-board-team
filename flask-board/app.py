@@ -7,6 +7,7 @@ from sqlalchemy import Integer, inspect, text
 from config import Config
 from controllers import all_blueprints
 from controllers.gelf import send_gelf
+from controllers.seclog import write_404log
 from extensions import db, jwt
 from models import BlockedIP
 
@@ -160,8 +161,12 @@ def create_app(config_class=Config):
 
     @app.after_request
     def web_scan_probe(response):
-        """없는 경로의 404를 신고해 Graylog가 출발지별 스캔을 집계하게 한다."""
+        """404 웹 스캔 신호를 Wazuh와 Graylog에 각각 기록한다."""
         if response.status_code == 404 and not request.path.startswith("/api/admin"):
+            try:
+                write_404log(_client_ip(), request.path[:120])
+            except Exception:
+                app.logger.warning("Wazuh web-scan log could not be written.")
             try:
                 send_gelf(
                     f"404 probe {request.path[:80]}",

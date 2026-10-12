@@ -1,0 +1,32 @@
+<script>
+  function paintSortHeaders(thead, state) {
+    thead.querySelectorAll('th[data-sort]').forEach(th => {
+      const active = th.dataset.sort === state.sort;
+      th.setAttribute('aria-sort', active ? (state.order === 'asc' ? 'ascending' : 'descending') : 'none');
+      th.querySelector('.sort-arrow').textContent = active ? (state.order === 'asc' ? ' ▲' : ' ▼') : ' ↕';
+    });
+  }
+
+  function bindSortHeaders(thead, state, reload) {
+    thead.querySelectorAll('th[data-sort]').forEach(th => {
+      const label = th.textContent.trim();
+      th.textContent = '';
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'hover:text-indigo-600';
+      button.textContent = label;
+      button.title = '정렬 방향 변경';
+      const arrow = document.createElement('span');
+      arrow.className = 'sort-arrow';
+      button.appendChild(arrow);
+      th.appendChild(button);
+      button.addEventListener('click', () => {
+        state.order = state.sort === th.dataset.sort && state.order === 'desc' ? 'asc' : 'desc';
+        state.sort = th.dataset.sort;
+        state.page = 1;
+        reload();
+      });
+    });
+    paintSortHeaders(thead, state);
+  }
+</script>

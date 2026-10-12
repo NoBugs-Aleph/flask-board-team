@@ -1,26 +1,31 @@
 import pytest
-from app import app
+from app import create_app
+from extensions import db
+from test_security_response import TestConfig
 
 
 @pytest.fixture
-def client():
-  app.config['TESTING'] = True
-  with app.test_client() as client:
-    yield client
+def client(monkeypatch):
+  # 다른 테스트가 해제한 전역 DB를 재사용하지 않는다. 외부 API도 격리한다.
+  app = create_app(TestConfig)
+  monkeypatch.setattr('controllers.public_controller.fetch_busan_travel',
+                      lambda content_id=None: [])
+  yield app.test_client()
+  with app.app_context():
+    db.session.remove()
+    db.drop_all()
+    db.engine.dispose()
 
 
-def test_get_public_posts_api_route(client):
-  """1) 백엔드 공공 API 프록시 라우트(/api/public/posts)가 정상 응답하는지 테스트"""
-  response = client.get('/api/public/posts')
-
-  # 외부 공공데이터포털 서버 상태에 따라 200(성공) 또는 500(외부 연동 실패)이 떨어질 수 있으나,
-  # 404(Not Found)가 아니어야 라우팅이 정상 작동하는 것입니다.
-  assert response.status_code in [200, 500]
-
-  data = response.get_json()
-  assert data is not None
-  # 성공 시 'getRecommendedKr' 혹은 실패 시 'msg' 키가 포함되어 있어야 함
-  assert 'msg' in data or 'getRecommendedKr' in data
+def test_public_data_is_rendered_on_server(client, monkeypatch):
+  """팀 게시판은 공공데이터를 서버에서 조회하여 HTML에 표시한다."""
+  monkeypatch.setattr('controllers.public_controller.fetch_busan_travel',
+                      lambda content_id=None: [{'UC_SEQ': 123, 'MAIN_TITLE': '합성 테마여행'}])
+  response = client.get('/public-posts')
+  assert response.status_code == 200
+  html = response.get_data(as_text=True)
+  assert '합성 테마여행' in html
+  assert '/public-post/123' in html
 
 
 def test_public_posts_page_route(client):

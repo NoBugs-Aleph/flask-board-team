@@ -374,12 +374,12 @@ def test_dashboard_page_has_pager_and_sortable_headers(app_client):
 
   # 공용 함수 partial 이 include 됐는가
   for fn in ('function renderPager', 'function bindSortHeaders',
-             'function paintSortHeaders', 'function tableQuery'):
+             'function paintSortHeaders', 'function buildQuery'):
     assert fn in html, fn
 
   # 두 표가 각자 페이저 자리를 갖고 있는가
   assert 'id="incident-pager"' in html
-  assert 'id="event-pager"' in html
+  assert 'id="pager"' in html
 
   # 머리글 클릭 정렬이 연결될 thead 와 정렬 컬럼
   assert 'id="incident-head"' in html
@@ -388,8 +388,8 @@ def test_dashboard_page_has_pager_and_sortable_headers(app_client):
     assert f'data-sort="{col}"' in html, col
 
   # 심각도 필터 드롭다운(두 표 각각)
-  assert 'id="inc-severity"' in html
-  assert 'id="ev-severity"' in html
+  assert 'id="incident-severity"' in html
+  assert 'id="event-severity"' in html
 
 
 def test_dashboard_sort_columns_match_server_whitelist(app_client):

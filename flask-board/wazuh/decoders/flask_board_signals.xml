@@ -1,0 +1,18 @@
+<!-- 2026-10-11 수업의 추가 호스트 로그. 기존 로그인 디코더는 그대로 둔다. -->
+<decoder name="flask-board-path-signal">
+  <prematch type="pcre2">(?:http_404|admin_auth_fail) </prematch>
+</decoder>
+<decoder name="flask-board-path-fields">
+  <parent>flask-board-path-signal</parent>
+  <regex type="pcre2" offset="after_parent">src_ip=(\S+) path=(\S+)</regex>
+  <order>srcip,url</order>
+</decoder>
+
+<decoder name="flask-board-user-signal">
+  <prematch type="pcre2">(?:gold_access|priv_unauthorized_admin) </prematch>
+</decoder>
+<decoder name="flask-board-user-fields">
+  <parent>flask-board-user-signal</parent>
+  <regex type="pcre2" offset="after_parent">user=(\S+) src_ip=(\S+)</regex>
+  <order>user,srcip</order>
+</decoder>

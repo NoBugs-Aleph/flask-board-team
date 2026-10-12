@@ -75,6 +75,11 @@ def paginate(query, args, sort_map, id_column, default_sort='created_at'):
   per_page = _int_arg(args, 'per_page', _int_arg(args, 'limit', DEFAULT_PER_PAGE))
   per_page = max(1, min(per_page, MAX_PER_PAGE))
   page = max(1, _int_arg(args, 'page', 1))      # 0·음수·글자는 1페이지로
+  offset = (page - 1) * per_page
+  # 팀 게시판의 기존 limit/offset 호출을 지원한다. 명시적 page가 우선이다.
+  if 'page' not in args:
+    offset = max(0, _int_arg(args, 'offset', 0))
+    page = offset // per_page + 1
 
   # 총 건수는 **필터가 적용된** 쿼리에서 센다. 전체 건수를 쓰면 필터를 걸었을 때
   # 있지도 않은 페이지 버튼이 생긴다.
@@ -83,11 +88,13 @@ def paginate(query, args, sort_map, id_column, default_sort='created_at'):
 
   direction = (lambda c: c.desc()) if order == 'desc' else (lambda c: c.asc())
   rows = (query
+          .order_by(None)
           .order_by(direction(sort_map[sort]), direction(id_column))
           .limit(per_page)
-          .offset((page - 1) * per_page)
+          .offset(offset)
           .all())
 
   meta = {'page': page, 'per_page': per_page, 'total': total,
-          'total_pages': total_pages, 'sort': sort, 'order': order}
+          'total_pages': total_pages, 'sort': sort, 'order': order,
+          'offset': offset, 'limit': per_page}
   return rows, meta

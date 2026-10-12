@@ -3,12 +3,13 @@
 실습용 MySQL 을 건드리지 않도록 임시 SQLite 파일에 별도 앱을 띄워 검사한다.
 """
 from datetime import timedelta
+import re
 
 import pytest
 
 from app import create_app
 from extensions import db
-from models import Post, User
+from models import ROLE_GOLD, ROLE_USER
 
 PW = 'pw12345'
 
@@ -19,7 +20,7 @@ def app(tmp_path):
   class TestConfig:
     SQLALCHEMY_DATABASE_URI = f"sqlite:///{tmp_path / 'test.db'}"
     SQLALCHEMY_TRACK_MODIFICATIONS = False
-    JWT_SECRET_KEY = 'test-secret-key'
+    JWT_SECRET_KEY = 'test-only-jwt-secret-at-least-32-bytes'
     JWT_ACCESS_TOKEN_EXPIRES = timedelta(hours=1)
     SECURITY_API_KEY = 'test-security-key'
     ADMIN_API_KEY = 'test-admin-key'
@@ -73,12 +74,14 @@ def test_login_response_includes_role(client):
   res = client.post('/api/auth/login', json={'username': 'u1', 'password': PW})
 
   assert res.status_code == 200
-  assert res.get_json()['role'] == 'user'      # 가입 기본 등급
+  assert res.get_json()['role'] == ROLE_USER  # 팀 게시판의 가입 기본 등급
 
 
-def test_me_requires_login(client):
-  """로그인 없이 내 정보를 물으면 401."""
-  assert client.get('/api/auth/me').status_code == 401
+def test_me_reports_anonymous_status(client):
+  """팀 게시판은 비로그인 상태를 200 응답의 authenticated 필드로 알려준다."""
+  response = client.get('/api/auth/me')
+  assert response.status_code == 200
+  assert response.get_json() == {'authenticated': False, 'user': None}
 
 
 def test_me_returns_username_and_role(client):
@@ -86,33 +89,34 @@ def test_me_returns_username_and_role(client):
   res = client.get('/api/auth/me', headers=auth(login(client, 'u2')))
 
   assert res.status_code == 200
-  body = res.get_json()
+  body = res.get_json()['user']
   assert body['username'] == 'u2'
-  assert body['role'] == 'user'
+  assert body['role'] == ROLE_USER
 
 
-# ── 골드 전용 API — 계층 검사 ────────────────────────────
+# ── 골드 라운지 페이지 — 계층 검사 ────────────────────────────
 def test_gold_api_rejects_anonymous(client):
   """비로그인은 401(인증 없음)."""
-  assert client.get('/api/gold/posts').status_code == 401
+  assert client.get('/gold').status_code == 401
 
 
 def test_gold_api_rejects_plain_user(client):
   """로그인했어도 등급이 모자라면 403(인가 부족)."""
   register(client, 'plain')
-  res = client.get('/api/gold/posts', headers=auth(login(client, 'plain')))
+  res = client.get('/gold', headers=auth(login(client, 'plain')))
 
   assert res.status_code == 403
-  body = res.get_json()
-  assert body['required_role'] == 'gold'       # 화면이 예외 안내에 쓴다
-  assert body['current_role'] == 'user'
+  html = res.get_data(as_text=True)
+  text = re.sub(r'\s+', '', re.sub(r'<[^>]+>', '', html))
+  assert '골드(1)' in text
+  assert '일반(0)' in text
 
 
 def test_gold_api_allows_gold(client):
   register(client, 'goldie')
   set_role(client, 'goldie', 'gold')
 
-  assert client.get('/api/gold/posts',
+  assert client.get('/gold',
                     headers=auth(login(client, 'goldie'))).status_code == 200
 
 
@@ -121,27 +125,19 @@ def test_gold_api_allows_admin_by_hierarchy(client):
   register(client, 'boss')
   set_role(client, 'boss', 'admin')
 
-  assert client.get('/api/gold/posts',
+  assert client.get('/gold',
                     headers=auth(login(client, 'boss'))).status_code == 200
 
 
-def test_gold_api_returns_only_gold_category(app, client):
-  """골드 전용 게시글만 골라 준다."""
+def test_gold_page_shows_authenticated_member(client):
+  """팀의 골드 라운지는 허가된 회원과 등급을 렌더링한다."""
   register(client, 'goldie2')
   set_role(client, 'goldie2', 'gold')
-  with app.app_context():
-    uid = User.query.filter_by(username='goldie2').first().id
-    db.session.add_all([
-        Post(title='일반글', content='c', category='일반', author_id=uid),
-        Post(title='골드글', content='c', category='골드', author_id=uid),
-    ])
-    db.session.commit()
-
-  body = client.get('/api/gold/posts',
-                    headers=auth(login(client, 'goldie2'))).get_json()
-
-  assert [p['title'] for p in body['posts']] == ['골드글']
-  assert body['count'] == 1
+  response = client.get('/gold', headers=auth(login(client, 'goldie2')))
+  assert response.status_code == 200
+  html = response.get_data(as_text=True)
+  assert 'goldie2님' in html
+  assert '골드(1)' in html
 
 
 # ── 관리자: 부여 · 회수 ──────────────────────────────────
@@ -151,7 +147,7 @@ def test_grant_gold_role(client):
 
   assert res.status_code == 200
   body = res.get_json()
-  assert (body['old_role'], body['new_role']) == ('user', 'gold')
+  assert (body['old_role'], body['new_role']) == (ROLE_USER, ROLE_GOLD)
 
 
 def test_grant_rejects_unknown_role(client):
@@ -171,7 +167,7 @@ def test_admin_can_grant_gold_with_jwt(client):
                     json={'username': 'member', 'role': 'gold'})
 
   assert res.status_code == 200
-  assert res.get_json()['new_role'] == 'gold'
+  assert res.get_json()['new_role'] == ROLE_GOLD
 
 
 def test_plain_user_cannot_grant(client):
@@ -180,7 +176,7 @@ def test_plain_user_cannot_grant(client):
   res = client.post('/api/admin/grant', headers=auth(login(client, 'sneaky')),
                     json={'username': 'sneaky', 'role': 'admin'})
 
-  assert res.status_code == 401
+  assert res.status_code == 403
 
 
 def test_revoke_gold_back_to_user(client):
@@ -193,16 +189,16 @@ def test_revoke_gold_back_to_user(client):
   assert res.status_code == 200
   body = res.get_json()
   assert (body['old_role'], body['new_role'], body['revoked']) == \
-         ('gold', 'user', True)
+         (ROLE_GOLD, ROLE_USER, True)
 
 
 def test_revoked_gold_loses_access(client):
-  """회수 뒤에는 골드 API 가 다시 막혀야 한다."""
+  """회수 뒤에는 골드 페이지 가 다시 막혀야 한다."""
   register(client, 'demote2')
   set_role(client, 'demote2', 'gold')
   client.post('/api/admin/revoke', headers=KEY, json={'username': 'demote2'})
 
-  assert client.get('/api/gold/posts',
+  assert client.get('/gold',
                     headers=auth(login(client, 'demote2'))).status_code == 403
 
 
@@ -226,6 +222,6 @@ def test_gold_users_are_not_policy_violations(client):
 
 
 # ── 화면 라우트 ─────────────────────────────────────────
-def test_gold_page_route_exists(client):
-  """페이지는 항상 렌더되고, 등급 차단은 화면 JS 가 담당한다."""
-  assert client.get('/gold').status_code == 200
+def test_gold_page_rejects_anonymous_on_server(client):
+  """팀 게시판은 주소창 직접 접근도 서버에서 거부한다."""
+  assert client.get('/gold').status_code == 401

@@ -8,10 +8,21 @@ from sqlalchemy import func
 from werkzeug.security import generate_password_hash
 
 from controllers.gelf import request_src_ip, send_gelf
+from controllers.seclog import write_auth_fail
+from controllers.pagination import SortError, paginate, severity_rank
 from extensions import db
 from models import Incident, Post, SecurityEvent, User
 
 security_bp = Blueprint("security", __name__, url_prefix="/api/security")
+
+_EVENT_SORTS = {name: getattr(SecurityEvent, name) for name in (
+    'id', 'created_at', 'decision', 'fail_count', 'student', 'src_ip', 'source',
+)}
+_EVENT_SORTS['severity'] = severity_rank(SecurityEvent.severity)
+_INCIDENT_SORTS = {name: getattr(Incident, name) for name in (
+    'id', 'created_at', 'updated_at', 'closed_at', 'status', 'event_count', 'src_ip',
+)}
+_INCIDENT_SORTS['severity'] = severity_rank(Incident.severity)
 
 
 def require_api_key(fn):
@@ -20,6 +31,7 @@ def require_api_key(fn):
         expected = current_app.config.get("SECURITY_API_KEY", "")
         supplied = request.headers.get("X-API-Key", "")
         if not expected or not secrets.compare_digest(supplied, expected):
+            write_auth_fail(request_src_ip(), request.path[:120])
             # S6 인증 공격 탐지. 시도된 키 값은 그 자체가 비밀 후보라 남기지 않는다.
             send_gelf(
                 f"admin api auth failed {request.path[:80]}",
@@ -111,9 +123,7 @@ def list_security_events():
     decision = request.args.get("decision", type=str)
     source = request.args.get("source", type=str)
     keyword = (request.args.get("q", type=str) or "").strip()
-    requested_limit = request.args.get("limit", default=20, type=int)
-    limit = min(max(requested_limit if requested_limit is not None else 20, 1), 100)
-    offset = max(request.args.get("offset", default=0, type=int) or 0, 0)
+    severity = request.args.get("severity", type=str)
     query = SecurityEvent.query
     if student:
         query = query.filter_by(student=student)
@@ -121,6 +131,8 @@ def list_security_events():
         query = query.filter_by(decision=decision)
     if source:
         query = query.filter_by(source=source)
+    if severity:
+        query = query.filter_by(severity=severity)
     if keyword:
         # 대시보드 검색창 하나로 사유·대상 계정·출발지 IP를 함께 찾는다.
         pattern = f"%{keyword[:100]}%"
@@ -131,13 +143,13 @@ def list_security_events():
                 SecurityEvent.src_ip.like(pattern),
             )
         )
-    total = query.count()
-    rows = query.order_by(SecurityEvent.id.desc()).offset(offset).limit(limit).all()
+    try:
+        rows, meta = paginate(query, request.args, _EVENT_SORTS, SecurityEvent.id)
+    except SortError as error:
+        return jsonify({"msg": str(error)}), 400
     return jsonify({
         "count": len(rows),
-        "total": total,
-        "offset": offset,
-        "limit": limit,
+        **meta,
         "events": [row.to_dict() for row in rows],
     })
 
@@ -187,15 +199,19 @@ def list_security_incidents():
     """
     status = request.args.get("status", type=str)
     student = request.args.get("student", type=str)
-    requested_limit = request.args.get("limit", default=20, type=int)
-    limit = min(max(requested_limit if requested_limit is not None else 20, 1), 100)
+    severity = request.args.get("severity", type=str)
     query = Incident.query
     if status in ("open", "closed"):
         query = query.filter_by(status=status)
     if student:
         query = query.filter_by(student=student)
-    rows = query.order_by(Incident.id.desc()).limit(limit).all()
-    return jsonify({"count": len(rows), "incidents": [row.to_dict() for row in rows]})
+    if severity:
+        query = query.filter_by(severity=severity)
+    try:
+        rows, meta = paginate(query, request.args, _INCIDENT_SORTS, Incident.id)
+    except SortError as error:
+        return jsonify({"msg": str(error)}), 400
+    return jsonify({"count": len(rows), "incidents": [row.to_dict() for row in rows], **meta})
 
 
 @security_bp.get("/incidents/summary")

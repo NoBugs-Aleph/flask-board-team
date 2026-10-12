@@ -6,6 +6,7 @@ from flask import Blueprint, current_app, g, jsonify, request
 
 from controllers.authz import api_role_required, current_user
 from controllers.gelf import request_src_ip, send_gelf
+from controllers.seclog import write_auth_fail
 from extensions import db
 from models import (
     ROLE_ADMIN,
@@ -50,6 +51,7 @@ def _admin_or_api_key_required(view):
             g.security_actor = "apikey"
             return view(*args, **kwargs)
         if supplied_key:
+            write_auth_fail(request_src_ip(), request.path[:120])
             # S6: 키를 내밀었는데 틀렸다 = 추측 시도. 관리자 화면(쿠키 로그인)은
             # 키를 보내지 않으므로 여기에 걸리지 않는다. 키 값은 남기지 않는다.
             send_gelf(
@@ -563,6 +565,13 @@ def create_incident():
         return jsonify({"msg": error or "hours는 1 이상이어야 합니다."}), 400
 
     since = datetime.now() - timedelta(hours=hours)
+    last_closed = (
+        Incident.query.filter_by(src_ip=src_ip, status="closed")
+        .filter(Incident.closed_at.isnot(None))
+        .order_by(Incident.closed_at.desc()).first()
+    )
+    if last_closed and last_closed.closed_at > since:
+        since = last_closed.closed_at
     events = (
         SecurityEvent.query.filter(
             SecurityEvent.src_ip == src_ip,
@@ -585,7 +594,11 @@ def create_incident():
         incident = Incident(src_ip=src_ip, status="open", title=title)
         db.session.add(incident)
     incident.title = title
-    incident.severity = severity
+    # 이미 열린 티켓의 심각도와 실제 이벤트의 최고 등급은 낮추지 않는다.
+    incident.severity = max(
+        (severity, worst, incident.severity or "Low"),
+        key=lambda value: _SEVERITY_RANK.get(value, 0),
+    )
     incident.summary = summary
     incident.event_count = event_count
     incident.actions = actions[:255]

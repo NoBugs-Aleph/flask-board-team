@@ -2,6 +2,7 @@ from flask import Blueprint, render_template
 
 from controllers.authz import admin_page_required, current_user, gold_page_required
 from controllers.gelf import request_src_ip, send_gelf
+from controllers.seclog import write_gold_access
 from models import ROLE_ADMIN, ROLE_GOLD, ROLE_NAMES
 
 page_bp = Blueprint("page", __name__)
@@ -36,6 +37,7 @@ def gold_lounge():
     # S9 상관 탐지용: "권한을 올린 뒤 실제로 열람했는가"를 잇는 열람 기록.
     # 등급 검사를 통과한 뒤에만 보내므로 403 거절은 열람으로 세지 않는다.
     user = current_user()
+    write_gold_access(user.username, request_src_ip())
     send_gelf(
         f"gold area accessed by '{user.username}'",
         rule="gold-access",

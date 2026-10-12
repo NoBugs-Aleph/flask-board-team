@@ -12,32 +12,27 @@ GELF(gelf.py)는 앱이 Graylog 로 '직접' 보내는 길이고,
   ② 사용자 입력(username)을 그대로 쓰면 '로그 인젝션'이 된다. 아이디에 줄바꿈을 넣어
      가짜 로그 줄을 만들 수 있으므로 공백·개행 문자를 '_' 로 바꾸고 길이를 자른다.
 """
-import os
-import re
-from datetime import datetime
-
 from flask import current_app
-
-_UNSAFE = re.compile(r'[\s\x00-\x1f\x7f]+')   # 공백·개행·제어문자
-
-
-def _clean(value, limit=64):
-  text = _UNSAFE.sub('_', str(value or '-'))
-  return text[:limit] or '-'
+from security_log import write_host_event
 
 
 def write_seclog(event, user, src_ip):
   """event: login_failed | login_success | login_locked"""
-  path = current_app.config.get('SECURITY_LOG_PATH')
-  if not path:
-    return
-  first_hop = str(src_ip or '').split(',')[0].strip()      # X-Forwarded-For 첫 홉만
-  now = datetime.now()
-  stamp = now.strftime('%Y-%m-%d %H:%M:%S.') + f'{now.microsecond // 1000:03d}'
-  line = f'{stamp} {event} user={_clean(user)} src_ip={_clean(first_hop, 45)}\n'
-  try:
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    with open(path, 'a', encoding='utf-8') as f:
-      f.write(line)
-  except OSError:
-    pass   # 로그 파일 문제로 로그인이 멈추면 안 된다(가용성 우선)
+  write_host_event(current_app.config.get('SECURITY_LOG_PATH'), event, src_ip, user=user)
+
+
+def write_404log(src_ip, path):
+  """404 웹 스캔 신호 — Graylog 외에 Wazuh에서도 수집한다."""
+  write_host_event(current_app.config.get('SECURITY_LOG_PATH'), 'http_404',
+                   src_ip, request_path=path)
+
+
+def write_auth_fail(src_ip, path):
+  """S6 API 인증 실패. 시도된 키는 기록하지 않는다."""
+  write_host_event(current_app.config.get('SECURITY_LOG_PATH'), 'admin_auth_fail',
+                   src_ip, request_path=path)
+
+
+def write_gold_access(user, src_ip):
+  """S9 골드 열람. 자료 본문은 기록하지 않는다."""
+  write_seclog('gold_access', user, src_ip)

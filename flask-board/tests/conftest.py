@@ -25,6 +25,12 @@ class _RecordingSocket:
   def close(self):
     pass
 
+  def __enter__(self):
+    return self
+
+  def __exit__(self, exc_type, exc_value, traceback):
+    self.close()
+
 
 class _StubSocketModule:
   """`controllers.gelf` 가 기대하는 최소한의 socket 모듈 흉내."""

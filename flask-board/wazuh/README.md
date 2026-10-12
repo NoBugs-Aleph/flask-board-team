@@ -10,6 +10,17 @@
 보존했습니다. Manager 전용 파일은 변경 전 원본 참고용입니다.
 설정 이전 후 운영에는 `docker-compose.yml`을 사용합니다.
 
+## 2026-10-12 추가 호스트 로그
+
+팀 게시판에도 404·API 인증 실패·골드 열람·과잉권한 로그를 적용했습니다.
+추가 디코더는 `decoders/flask_board_signals.xml`, 규칙은 `rules/flask_board_signals.xml`입니다.
+격리된 Wazuh 4.9.0에서 규칙 `100230`~`100233` 매칭을 검증했습니다.
+운영 Manager에 자동 설치하거나 재시작하지는 않았습니다.
+
+각 팀원은 본인의 `SECURITY_LOG_PATH`와 Agent 수집 경로를 맞추고,
+규칙 ID 충돌 확인 후 [설치·검증 절차](../docs/LESSON-UPDATES-20261012.md)를 따릅니다.
+`wazuh-manager2`는 강사님 환경의 이름이므로 본인 PC의 실제 컨테이너 이름을 사용합니다.
+
 ## 설정 파일 위치
 
 수업에서 생성한 파일은 게시판 루트의 `config/`에 있습니다.

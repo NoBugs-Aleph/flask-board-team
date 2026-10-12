@@ -2,7 +2,7 @@
 
 배경(문서 144 S9): 권한을 올린 직후 민감 자료를 열람하는 흐름을 잡으려면
 `priv-unauthorized-admin`(권한 이상) 뿐 아니라 **"실제로 봤다"** 는 신호가 필요하다.
-지금은 골드 API 가 열람돼도 아무 기록이 남지 않아 두 신호를 이을 수 없다.
+지금은 골드 페이지 가 열람돼도 아무 기록이 남지 않아 두 신호를 이을 수 없다.
 
 개인정보: 남기는 값은 계정명·등급·출발지 IP 뿐이다. 게시글 내용은 남기지 않는다.
 """
@@ -27,7 +27,7 @@ def sent(monkeypatch):
 
   import controllers.gelf as gelf_mod
   monkeypatch.setattr(gelf_mod, 'send_gelf', fake)
-  import controllers.gold_controller as gold_mod
+  import controllers.page_controller as gold_mod
   monkeypatch.setattr(gold_mod, 'send_gelf', fake, raising=False)
   return calls
 
@@ -37,7 +37,7 @@ def client(tmp_path):
   class TestConfig:
     SQLALCHEMY_DATABASE_URI = f"sqlite:///{tmp_path / 'test.db'}"
     SQLALCHEMY_TRACK_MODIFICATIONS = False
-    JWT_SECRET_KEY = 'test-secret-key'
+    JWT_SECRET_KEY = 'test-only-jwt-secret-at-least-32-bytes'
     JWT_ACCESS_TOKEN_EXPIRES = timedelta(hours=1)
     SECURITY_API_KEY = 'test-security-key'
     ADMIN_API_KEY = 'test-admin-key'
@@ -67,11 +67,11 @@ def make_user(client, username, role=None):
 
 
 def test_gold_access_is_reported(client, sent):
-  """골드 등급이 골드 API 를 열람하면 rule='gold-access' 로 신고한다."""
+  """골드 등급이 골드 페이지 를 열람하면 rule='gold-access' 로 신고한다."""
   hdr = make_user(client, 'zz_gold', 'gold')
   sent.clear()
 
-  assert client.get('/api/gold/posts', headers=hdr).status_code == 200
+  assert client.get('/gold', headers=hdr).status_code == 200
   assert 'gold-access' in rules(sent), sent
 
   ev = [c for c in sent if c['rule'] == 'gold-access'][0]
@@ -84,7 +84,7 @@ def test_admin_access_to_gold_is_reported(client, sent):
   hdr = make_user(client, 'zz_admin9', 'admin')
   sent.clear()
 
-  assert client.get('/api/gold/posts', headers=hdr).status_code == 200
+  assert client.get('/gold', headers=hdr).status_code == 200
   ev = [c for c in sent if c['rule'] == 'gold-access']
   assert ev and ev[0].get('role') == 'admin', sent
 
@@ -94,7 +94,7 @@ def test_denied_access_emits_no_gold_access(client, sent):
   hdr = make_user(client, 'zz_plain')
   sent.clear()
 
-  assert client.get('/api/gold/posts', headers=hdr).status_code == 403
+  assert client.get('/gold', headers=hdr).status_code == 403
   assert 'gold-access' not in rules(sent), sent
 
 
@@ -103,6 +103,6 @@ def test_no_post_content_in_signal(client, sent):
   hdr = make_user(client, 'zz_gold2', 'gold')
   sent.clear()
 
-  client.get('/api/gold/posts', headers=hdr)
+  client.get('/gold', headers=hdr)
   blob = repr(sent)
   assert 'posts' not in blob and 'content' not in blob, blob

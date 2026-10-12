@@ -12,6 +12,8 @@ import sys
 import urllib.request
 from pathlib import Path
 
+from security_log import write_host_event
+
 
 BASE_DIR = Path(__file__).resolve().parent
 
@@ -51,6 +53,9 @@ def cfg():
             "STUDENT_NAME", os.environ.get("STUDENT", "myeongjundev")
         ),
         "src_ip": os.environ.get("BOARD_SRC_IP", "127.0.0.1"),
+        "security_log_path": os.environ.get(
+            "SECURITY_LOG_PATH", str(BASE_DIR / "logs" / "security.log")
+        ),
     }
 
 
@@ -97,6 +102,12 @@ def send_gelf(config, user):
         client.sendto(payload, (config["gelf_host"], config["gelf_port"]))
 
 
+def write_host_log(config, user):
+    """과잉 관리자 권한 신호를 Wazuh에도 기록한다(빈 경로는 기록 끔)."""
+    write_host_event(config.get('security_log_path', str(BASE_DIR / 'logs' / 'security.log')),
+                     'priv_unauthorized_admin', config['src_ip'], user=user['username'])
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--dry-run", action="store_true", help="신고 없이 위반만 출력")
@@ -129,8 +140,12 @@ def main():
             print(f"    - {username} [dry-run]")
             continue
 
-        send_gelf(config, user)
-        print(f"    - {username} -> Graylog 신고(rule=priv-unauthorized-admin)")
+        write_host_log(config, user)
+        try:
+            send_gelf(config, user)
+            print(f"    - {username} -> Graylog 신고(rule=priv-unauthorized-admin)")
+        except OSError:
+            print(f"    - {username} -> Graylog 전송 실패 (호스트 로그 기록은 시도함)")
         if args.revoke:
             result = get_json(
                 f"{config['board']}/api/admin/revoke",

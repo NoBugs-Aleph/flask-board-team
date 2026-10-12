@@ -30,6 +30,7 @@ GitHub Free의 공개 저장소입니다. 조장 `myeongjundev`가 조직을 관
 - [최종 제출 체크리스트](docs/SUBMISSION-CHECKLIST.md)
 - [기존 게시판 전체 README](./flask-board/README.md)
 - [팀원 PC Wazuh 수집 문제 검증 가이드](./flask-board/docs/WAZUH-LLM-VERIFICATION-GUIDE.md)
+- [10-12 최신 수업 적용·팀원 실행 및 검증 방법](./flask-board/docs/LESSON-UPDATES-20261012.md)
 
 ## 게시판 빠른 실행 — 협업 기능 확인용
 
@@ -52,15 +53,24 @@ $env:SECURITY_LOG_PATH = ''
 
 ## 자동 검증
 
-실행 서버를 종료한 뒤 `flask-board` 폴더에서 실행합니다.
+`flask-board` 폴더에서 실행합니다. 수업 예제 테스트도 포함되므로 검증 의존성을 설치합니다.
+테스트는 별도 SQLite와 임시 로그를 사용합니다.
 
 ```powershell
 $env:GELF_ENABLED = '0'
 $env:SECURITY_LOG_PATH = ''
+.\.venv\Scripts\python.exe -m pip install -r requirements-test.txt
 .\.venv\Scripts\python.exe -m unittest discover -s tests -v
+.\.venv\Scripts\python.exe -m pytest tests -q
 ```
 
 실제 검증 결과는 [검증 기록](docs/VERIFICATION.md)에 남깁니다.
+
+2026-10-12에 개인 게시판의 최신 수업 변경을 팀 게시판에도 적용했습니다.
+404·API 인증 실패·골드 열람·과잉권한 Wazuh 로그, 두 대시보드 목록의
+페이징·정렬·심각도 필터와 추가 규칙 파일을 포함합니다. 전체 테스트 155개가 통과했습니다.
+실행 중인 Flask가 `--debug` 없이 시작됐다면 Python 코드 변경을 반영하려면 재시작해야 합니다.
+Wazuh 추가 규칙의 운영 설치는 [별도 적용 절차](flask-board/docs/LESSON-UPDATES-20261012.md)를 따릅니다.
 
 ## 소스 출처와 공유 범위
 

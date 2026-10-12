@@ -1,0 +1,27 @@
+<!-- 개인 환경 추가 규칙 ID. 기존 100210/100211, 100220~100222와 겹치지 않는다. -->
+<group name="flask_board,webapp,local,">
+  <rule id="100230" level="5">
+    <decoded_as>flask-board-path-signal</decoded_as>
+    <match>http_404 </match>
+    <description>Flask board HTTP 404 probe: $(srcip) $(url)</description>
+    <group>web_scan_signal,</group>
+  </rule>
+  <rule id="100231" level="7">
+    <decoded_as>flask-board-path-signal</decoded_as>
+    <match>admin_auth_fail </match>
+    <description>Flask board admin API authentication failed: $(srcip)</description>
+    <group>authentication_failed,</group>
+  </rule>
+  <rule id="100232" level="3">
+    <decoded_as>flask-board-user-signal</decoded_as>
+    <match>gold_access </match>
+    <description>Flask board authorized gold access: $(dstuser) from $(srcip)</description>
+    <group>gold_access_audit,</group>
+  </rule>
+  <rule id="100233" level="10">
+    <decoded_as>flask-board-user-signal</decoded_as>
+    <match>priv_unauthorized_admin </match>
+    <description>Flask board unauthorized administrator: $(dstuser)</description>
+    <group>privilege_violation,</group>
+  </rule>
+</group>
