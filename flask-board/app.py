@@ -187,4 +187,5 @@ app = create_app()
 
 
 if __name__ == "__main__":
-    app.run(debug=True, host="0.0.0.0", port=5000)
+    # 개인 MySQL 게시판·n8n 대응 API(5000)와 팀 SQLite 서버의 포트를 분리한다.
+    app.run(debug=True, host="0.0.0.0", port=5001)
