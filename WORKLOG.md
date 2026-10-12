@@ -22,6 +22,13 @@
 | 개인 Agent 설정 예제 | `agent.conf` 1개. 개인·팀의 보안/Suricata 로그 4개와 templates 폴더 2개 |
 | 작업 폴더 | [member_01 오늘 실습 폴더](flask-board/member_01/팀실습_1조_김명준_1012/) |
 | 협업 경로 | 개인 Fork `myeongjundev/flask-board-team` → 조직 원본 `NoBugs-Aleph/flask-board-team`의 `main` |
+| 제출 PR | [PR #11](https://github.com/NoBugs-Aleph/flask-board-team/pull/11), Merged |
+| 제출 커밋 | [659dc6e](https://github.com/myeongjundev/flask-board-team/commit/659dc6e) |
+| Merge 확인 | 2026-10-12 15:20:04 KST, [582b9a5](https://github.com/NoBugs-Aleph/flask-board-team/commit/582b9a5) |
+
+PR의 작성자와 Fork 소유자가 `myeongjundev`인지, base가 조직 원본 `main`인지,
+변경 파일 16개가 본인 제출 자료와 요청된 공유 문서인지 확인한 뒤 Merge했습니다.
+설정 문법 검사와 캡처 검토가 통과했고 PR은 충돌 없음(`MERGEABLE`, `CLEAN`) 상태였습니다.
 
 캡처에서 확인한 범위:
 
