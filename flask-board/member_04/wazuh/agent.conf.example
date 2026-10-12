@@ -1,0 +1,24 @@
+<!-- member_04 (whiteclover0542) 개인 agent.conf 예제 — 미니실습2 ②-4 제출용.
+     본인 게시판/로그 경로. 다른 팀원은 자기 경로로 바꿔서 사용.
+     매니저의 그룹 공유설정 위치: /var/ossec/etc/shared/flask-board/agent.conf -->
+<agent_config os="Windows">
+
+  <!-- ① 인증/404/감사 사건 (login_failed, http_404, gold_access 등) -->
+  <localfile>
+    <location>D:\SR\aleph-t\Python-Lab-ALeph-T\_7_board_test\logs\security.log</location>
+    <log_format>syslog</log_format>
+  </localfile>
+
+  <!-- ② Suricata IDS 텍스트 알림 수집 (173 §4-5) — Nmap/SQLmap 탐지용.
+       포워더가 eve.json → 'suricata_alert ..' 한 줄로 변환해 쌓는 파일 -->
+  <localfile>
+    <location>D:\SR\aleph-t\Python-Lab-ALeph-T\_7_board_test\logs\suricata_alert.log</location>
+    <log_format>syslog</log_format>
+  </localfile>
+
+  <!-- ③ templates 폴더 실시간 FIM (웹셸 생성/변조/삭제 탐지) -->
+  <syscheck>
+    <directories realtime="yes" check_all="yes">D:\SR\aleph-t\Python-Lab-ALeph-T\_7_board_test\templates</directories>
+  </syscheck>
+
+</agent_config>
