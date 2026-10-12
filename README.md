@@ -25,6 +25,7 @@ GitHub Free의 공개 저장소입니다. 조장 `myeongjundev`가 조직을 관
 
 ## 먼저 읽을 문서
 
+- [팀원 공유 작업 기록](WORKLOG.md)
 - [Fork → Clone → 자기소개 → PR → Merge 길라잡이](docs/COLLABORATION-GUIDE.md)
 - [자기소개 양식](docs/INTRODUCE-TEMPLATE.txt)
 - [최종 제출 체크리스트](docs/SUBMISSION-CHECKLIST.md)
