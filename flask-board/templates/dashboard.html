@@ -11,7 +11,7 @@
   {% include 'partials/_pager.html' %}
   {% include 'partials/_table_sort.html' %}
 
-  <main class="max-w-6xl mx-auto px-4 py-6 flex-1 w-full">
+  <main class="max-w-6xl xl:max-w-7xl 2xl:max-w-screen-2xl mx-auto px-4 py-6 flex-1 w-full">
     <div class="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-3 mb-5">
       <div>
         <h1 class="text-2xl font-bold">🛡️ 보안 대시보드</h1>
@@ -90,9 +90,17 @@
         </div>
       </div>
 
-      <table class="hidden md:table w-full table-fixed text-sm">
+      <div id="inc-actions" class="hidden px-4 py-3 flex flex-wrap items-center gap-2 text-xs">
+        <label class="flex items-center gap-1"><input id="inc-check-all" type="checkbox"> 이 페이지의 열린 티켓 선택</label>
+        <button id="inc-close-selected" disabled class="rounded-lg bg-red-600 text-white px-3 py-2 disabled:opacity-40">선택 종료 (<span id="inc-sel-count">0</span>)</button>
+        <button id="inc-close-all" class="rounded-lg border border-red-300 text-red-700 px-3 py-2">열린 티켓 전체 종료</button>
+        <span class="text-gray-400">학생·심각도 조건의 열린 티켓 전체(다른 페이지 포함)</span>
+        <span id="inc-action-msg" role="status"></span>
+      </div>
+      <table class="hidden lg:table w-full table-fixed text-sm">
         <thead id="incident-head" class="bg-gray-50 text-gray-500 text-xs">
           <tr>
+            <th class="inc-admin-col hidden w-10 px-2"><span class="sr-only">선택</span></th>
             <th data-sort="id" class="w-14 text-left px-4 py-2.5 font-medium">#</th>
             <th data-sort="status" class="w-20 text-left px-2 py-2.5 font-medium">상태</th>
             <th data-sort="severity" class="w-20 text-left px-2 py-2.5 font-medium">심각도</th>
@@ -107,11 +115,11 @@
           <tr><td colspan="8" class="px-4 py-10 text-center text-gray-400">불러오는 중…</td></tr>
         </tbody>
       </table>
-      <ul id="incident-cards" class="md:hidden divide-y divide-gray-100"></ul>
+      <ul id="incident-cards" class="lg:hidden divide-y divide-gray-100"></ul>
       <div id="incident-pager" class="flex flex-col sm:flex-row items-center justify-between gap-2 px-4 py-3 border-t border-gray-100"></div>
 
       <p class="px-4 py-2.5 text-xs text-gray-400 border-t border-gray-100">
-        읽기 전용 화면입니다. 티켓 생성·종료는 관리자 API(<code>/api/admin/incident</code>, <code>/api/admin/incident/close</code>)에서 합니다.
+        관리자 로그인 후 이 화면에서 티켓을 선택·전체 종료할 수 있습니다. 티켓 생성은 관리자 API에서 합니다.
       </p>
     </section>
 
@@ -147,7 +155,7 @@
       </div>
 
       {# 넓은 화면: 고정 폭 표. 사유만 남는 폭을 차지하고 말줄임한다. #}
-      <table class="hidden md:table w-full table-fixed text-sm">
+      <table class="hidden lg:table w-full table-fixed text-sm">
         <thead id="event-head" class="bg-gray-50 text-gray-500 text-xs">
           <tr>
             <th data-sort="created_at" class="w-44 text-left px-4 py-2.5 font-medium">시각</th>
@@ -164,7 +172,7 @@
         </tbody>
       </table>
       {# 좁은 화면: 카드 목록 #}
-      <ul id="event-cards" class="md:hidden divide-y divide-gray-100"></ul>
+      <ul id="event-cards" class="lg:hidden divide-y divide-gray-100"></ul>
 
       <div id="pager" class="flex flex-col sm:flex-row items-center justify-between gap-2 px-4 py-3 border-t border-gray-100"></div>
     </section>
@@ -375,18 +383,63 @@
       document.getElementById('inc-sev').textContent = severities ? `(열림 ${severities})` : '';
     }
 
+    let isIncidentAdmin = !!window.CURRENT_USER && window.CURRENT_USER.role >= 2;
+    const incSelected = new Set();
+    let incidentRequest = 0;
+    let incidentLoading = false;
+    let incidentActionPending = false;
+
+    function incidentCheckbox(incident) {
+      return isIncidentAdmin && incident.status === 'open'
+        ? `<input type="checkbox" class="inc-check shrink-0" value="${incident.id}" aria-label="티켓 ${incident.id} 선택" ${incSelected.has(incident.id) ? 'checked' : ''}>` : '';
+    }
+
+    function updateIncidentSelection() {
+      const ids = new Set([...document.querySelectorAll('.inc-check')].map(box => Number(box.value)));
+      const all = document.getElementById('inc-check-all');
+      all.checked = ids.size > 0 && incSelected.size === ids.size;
+      all.indeterminate = incSelected.size > 0 && incSelected.size < ids.size;
+      all.disabled = ids.size === 0 || incidentActionPending || incidentLoading;
+      document.getElementById('inc-sel-count').textContent = incSelected.size;
+      document.getElementById('inc-close-selected').disabled = incSelected.size === 0 || incidentActionPending || incidentLoading;
+      document.getElementById('inc-close-all').disabled = incidentActionPending || incidentLoading;
+      document.querySelectorAll('.inc-check').forEach(box => {
+        box.checked = incSelected.has(Number(box.value));
+        box.disabled = incidentActionPending || incidentLoading;
+      });
+    }
+
+    async function closeIncidents(payload, text) {
+      if (incidentActionPending || incidentLoading || !confirm(text)) return;
+      incidentActionPending = true;
+      updateIncidentSelection();
+      const message = document.getElementById('inc-action-msg');
+      try {
+        const res = await fetch('/api/admin/incidents/close', {
+          method: 'POST', headers: authHeaders({ 'Content-Type': 'application/json' }), body: JSON.stringify(payload),
+        });
+        const data = await res.json().catch(() => ({}));
+        message.textContent = data.msg || `처리 실패 (${res.status})`;
+        message.className = res.ok ? 'text-emerald-700' : 'text-red-600';
+        if (res.ok) await Promise.all([loadIncidents(), loadIncidentSummary()]);
+      } catch (error) { message.textContent = '티켓 종료 요청에 실패했습니다.'; message.className = 'text-red-600'; }
+      finally { incidentActionPending = false; updateIncidentSelection(); }
+    }
+
     function renderIncidents(incidents) {
       const rows = document.getElementById('incident-rows');
       const cards = document.getElementById('incident-cards');
       if (!incidents.length) {
-        rows.innerHTML = '<tr><td colspan="8" class="px-4 py-10 text-center text-gray-400">티켓이 없습니다.</td></tr>';
+        rows.innerHTML = `<tr><td colspan="${isIncidentAdmin ? 9 : 8}" class="px-4 py-10 text-center text-gray-400">티켓이 없습니다.</td></tr>`;
         cards.innerHTML = '<li class="px-4 py-10 text-center text-gray-400">티켓이 없습니다.</li>';
+        updateIncidentSelection();
         return;
       }
 
       rows.innerHTML = incidents.map(incident => {
         const open = openIncidents.has(incident.id);
         return `<tr data-id="${incident.id}" class="incident-row cursor-pointer hover:bg-gray-50 ${open ? 'bg-indigo-50/40' : ''}">
+          ${isIncidentAdmin ? `<td class="px-2 py-2.5">${incidentCheckbox(incident)}</td>` : ''}
           <td class="px-4 py-2.5 text-gray-400 tabular-nums">${incident.id}</td>
           <td class="px-2 py-2.5">${incidentBadge(incident.status)}</td>
           <td class="px-2 py-2.5 ${severityClass(incident.severity)}">${escapeHtml(incident.severity)}</td>
@@ -401,13 +454,14 @@
             <div class="text-gray-400">${incident.closed_at ? escapeHtml(formatDateTime(incident.closed_at)) : '—'}</div>
           </td>
           <td class="px-2 py-2.5 text-gray-400 text-center">${open ? '▴' : '▾'}</td>
-        </tr>${open ? `<tr class="bg-indigo-50/40"><td colspan="8" class="px-4 pb-4 pt-1">${incidentSummary(incident)}</td></tr>` : ''}`;
+        </tr>${open ? `<tr class="bg-indigo-50/40"><td colspan="${isIncidentAdmin ? 9 : 8}" class="px-4 pb-4 pt-1">${incidentSummary(incident)}</td></tr>` : ''}`;
       }).join('');
 
       cards.innerHTML = incidents.map(incident => {
         const open = openIncidents.has(incident.id);
         return `<li data-id="${incident.id}" class="incident-row px-4 py-3 cursor-pointer ${open ? 'bg-indigo-50/40' : ''}">
           <div class="flex items-center gap-2 flex-wrap">
+            ${incidentCheckbox(incident)}
             ${incidentBadge(incident.status)}
             <span class="text-xs ${severityClass(incident.severity)}">${escapeHtml(incident.severity)}</span>
             <span class="font-mono text-xs text-gray-500">${escapeHtml(incident.src_ip)}</span>
@@ -419,25 +473,43 @@
         </li>`;
       }).join('');
 
-      document.querySelectorAll('.incident-row').forEach(row => row.addEventListener('click', () => {
+      document.querySelectorAll('.incident-row').forEach(row => row.addEventListener('click', event => {
+        if (event.target.closest('input')) return;
         const id = Number(row.dataset.id);
         openIncidents.has(id) ? openIncidents.delete(id) : openIncidents.add(id);
         renderIncidents(incidents);
       }));
+      updateIncidentSelection();
     }
 
     async function loadIncidents() {
+      const requestId = ++incidentRequest;
+      incidentLoading = true;
+      incSelected.clear();
+      updateIncidentSelection();
       const params = buildQuery({ decision: '', source: '', q: '', severity: incidentState.severity });
       if (incidentState.status) params.set('status', incidentState.status);
       params.set('page', incidentState.page);
       params.set('per_page', incidentState.pageSize);
       params.set('sort', incidentState.sort);
       params.set('order', incidentState.order);
-      const data = await readJson('/api/security/incidents?' + params);
+      let data;
+      try { data = await readJson('/api/security/incidents?' + params); }
+      catch (error) {
+        if (requestId === incidentRequest) {
+          incidentLoading = false;
+          renderIncidents([]);
+          document.getElementById('incident-pager').replaceChildren();
+        }
+        throw error;
+      }
+      if (requestId !== incidentRequest) return;
       if (incidentState.page > data.total_pages) {
         incidentState.page = data.total_pages;
         return loadIncidents();
       }
+      incidentLoading = false;
+      incSelected.clear();
       document.getElementById('incident-total').textContent = `${data.total}건`;
       renderIncidents(data.incidents || []);
       paintSortHeaders(document.getElementById('incident-head'), incidentState);
@@ -534,11 +606,40 @@
       if (event.target.checked) timer = setInterval(() => reload(), 30000);
     });
 
+    document.querySelectorAll('#incident-rows, #incident-cards').forEach(container => container.addEventListener('change', event => {
+      if (!event.target.matches('.inc-check')) return;
+      const id = Number(event.target.value);
+      event.target.checked ? incSelected.add(id) : incSelected.delete(id);
+      updateIncidentSelection();
+    }));
+    document.getElementById('inc-check-all').addEventListener('change', event => {
+      incSelected.clear();
+      if (event.target.checked) document.querySelectorAll('.inc-check').forEach(box => incSelected.add(Number(box.value)));
+      updateIncidentSelection();
+    });
+    document.getElementById('inc-close-selected').addEventListener('click', () => {
+      closeIncidents({ ids: [...incSelected] }, `선택한 티켓 ${incSelected.size}건을 종료할까요?`);
+    });
+    document.getElementById('inc-close-all').addEventListener('click', () => {
+      const scope = [state.student && `학생 ${state.student}`, incidentState.severity && `심각도 ${incidentState.severity}`].filter(Boolean).join(' · ') || '조건 없음';
+      closeIncidents({ all_open: true, student: state.student, severity: incidentState.severity }, `열린 티켓을 모두 종료할까요? (${scope}, 다른 페이지 포함)`);
+    });
+
+    async function detectIncidentAdmin() {
+      try {
+        const res = await fetch('/api/auth/me', { headers: authHeaders() });
+        const data = await res.json();
+        isIncidentAdmin = res.ok && !!data.user && data.user.role >= 2;
+      } catch (error) { isIncidentAdmin = false; }
+      document.getElementById('inc-actions').classList.toggle('hidden', !isIncidentAdmin);
+      document.querySelectorAll('.inc-admin-col').forEach(column => column.classList.toggle('hidden', !isIncidentAdmin));
+    }
+
     bindSortHeaders(document.getElementById('event-head'), state, () => reload({ summary: false }));
     bindSortHeaders(document.getElementById('incident-head'), incidentState, reloadIncidents);
     syncControls();
     syncIncidentControls();
-    reload({ students: true });
+    detectIncidentAdmin().then(() => reload({ students: true }));
   </script>
 </body>
 </html>

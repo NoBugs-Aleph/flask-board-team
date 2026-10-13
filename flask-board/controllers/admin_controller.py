@@ -7,6 +7,7 @@ from flask import Blueprint, current_app, g, jsonify, request
 from controllers.authz import api_role_required, current_user
 from controllers.gelf import request_src_ip, send_gelf
 from controllers.seclog import write_auth_fail
+from controllers.pagination import SortError, paginate
 from extensions import db
 from models import (
     ROLE_ADMIN,
@@ -123,20 +124,92 @@ def _allowlist(value=None):
     return current_app.config.get("ADMIN_ALLOWLIST", [])
 
 
+_BULK_MAX = 500
+_PROTECTED_USERS = ("soarbot",)
+_USER_SORTS = {name: getattr(User, name) for name in (
+    "id", "username", "role", "is_locked", "locked_at", "failed_logins",
+)}
+
+
+def _parse_ids(data):
+    ids = data.get("ids") if isinstance(data, dict) else None
+    if (isinstance(ids, list) and 0 < len(ids) <= _BULK_MAX
+            and all(type(value) is int and value > 0 for value in ids)):
+        return set(ids)
+    return None
+
+
+def _user_filters(query, source):
+    term = str(source.get("q") or "").strip()[:100]
+    if term:
+        query = query.filter(db.or_(
+            User.username.contains(term, autoescape=True),
+            User.role_granted_by.contains(term, autoescape=True),
+            User.role_reason.contains(term, autoescape=True),
+        ))
+    requested_role = source.get("role")
+    if requested_role not in (None, ""):
+        role = _role_value(requested_role)
+        if role is None:
+            raise ValueError("role 값이 올바르지 않습니다.")
+        query = query.filter_by(role=role)
+    locked = str(source.get("locked", ""))
+    if locked not in ("", "0", "1"):
+        raise ValueError("locked는 0 또는 1이어야 합니다.")
+    if locked:
+        query = query.filter(User.is_locked.is_(locked == "1"))
+    return query
+
+
+def _bulk_targets(data):
+    wanted = _parse_ids(data)
+    if wanted is None:
+        return None, None
+    users = User.query.filter(User.id.in_(wanted)).order_by(User.id).all()
+    return users, sorted(wanted - {user.id for user in users})
+
+
+def _keep_last_admin(targets, locking=False):
+    """여러 관리자를 한꺼번에 선택해도 마지막 한 명은 남긴다."""
+    candidates = [user for user in targets if user.is_admin]
+    if not candidates:
+        return targets, []
+    remaining = User.query.filter(User.role >= ROLE_ADMIN)
+    if locking:
+        remaining = remaining.filter(User.is_locked.is_(False))
+    remaining = remaining.filter(User.id.notin_([user.id for user in targets]))
+    if remaining.count():
+        return targets, []
+    survivor = min(candidates, key=lambda user: user.id)
+    return [user for user in targets if user.id != survivor.id], [survivor.id]
+
+
+def _user_audit(targets, reason, decision="deny"):
+    if targets:
+        db.session.add(SecurityEvent(
+            student=_security_actor()[:50], src_ip=request_src_ip() or "0.0.0.0",
+            fail_count=0, decision=decision, severity="Medium", reason=reason[:200],
+            users=", ".join(sorted(user.username for user in targets))[:255],
+            source="admin-console",
+        ))
+
+
 @admin_bp.get("/users")
 @_admin_or_api_key_required
 def list_users():
-    """회원 목록을 등급 높은 순으로 불러온다."""
-    query = User.query
-    requested_role = request.args.get("role")
-    if requested_role is not None:
-        role = _role_value(requested_role)
-        if role is None:
-            return jsonify({"msg": "role 값이 올바르지 않습니다."}), 400
-        query = query.filter_by(role=role)
-    users = query.order_by(User.role.desc(), User.id.asc()).all()
+    """화면은 서버 페이징, page/per_page 없는 회수봇 호출은 전원 조회."""
+    try:
+        query = _user_filters(User.query, request.args)
+        meta = {}
+        if "page" in request.args or "per_page" in request.args:
+            users, meta = paginate(query, request.args, _USER_SORTS, User.id, default_sort="role")
+        else:
+            users = query.order_by(User.role.desc(), User.id.asc()).all()
+    except (ValueError, SortError) as error:
+        return jsonify({"msg": str(error)}), 400
     post_counts = dict(
         db.session.query(Post.author_id, db.func.count(Post.id))
+        .filter(Post.author_id.in_([user.id for user in users]))
         .group_by(Post.author_id)
         .all()
     )
@@ -144,6 +217,8 @@ def list_users():
     return jsonify(
         {
             "count": len(users),
+            **meta,
+            "summary": dict(db.session.query(User.role, db.func.count(User.id)).group_by(User.role).all()),
             "users": [
                 {
                     **user.to_dict(),
@@ -158,6 +233,82 @@ def list_users():
             "me": me.to_dict() if me else None,
         }
     )
+
+
+@admin_bp.post("/users/lock")
+@_admin_or_api_key_required
+def lock_users_bulk():
+    data = request.get_json(silent=True)
+    users, not_found = _bulk_targets(data)
+    if users is None:
+        return jsonify({"msg": f"ids(양의 정수 목록, 1~{_BULK_MAX}개)가 필요합니다."}), 400
+    me = current_user()
+    self_skipped = [user.id for user in users if me and user.id == me.id]
+    skipped = [user.id for user in users if user.is_locked and user.id not in self_skipped]
+    targets = [user for user in users if not user.is_locked and user.id not in self_skipped]
+    targets, last_admin_skipped = _keep_last_admin(targets, locking=True)
+    reason = str(data.get("reason") or f"관리자 수동 차단 by {_security_actor()}")[:200]
+    now = datetime.now()
+    for user in targets:
+        user.is_locked, user.locked_at, user.lock_reason = True, now, reason
+    _user_audit(targets, f"관리자 계정 차단 {len(targets)}건: {reason}")
+    db.session.commit()
+    changed = [user.id for user in targets]
+    return jsonify(msg=f"{len(changed)}명 차단", count=len(changed), changed=changed,
+                   skipped=skipped, not_found=not_found, self_skipped=self_skipped,
+                   last_admin_skipped=last_admin_skipped, actor=_security_actor())
+
+
+@admin_bp.post("/users/unlock")
+@_admin_or_api_key_required
+def unlock_users_bulk():
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict):
+        return jsonify({"msg": "JSON 객체가 필요합니다."}), 400
+    if data.get("all_locked") is True:
+        try:
+            targets = _user_filters(User.query, data).filter(User.is_locked.is_(True)).order_by(User.id).all()
+        except ValueError as error:
+            return jsonify({"msg": str(error)}), 400
+        skipped, not_found = [], []
+    else:
+        users, not_found = _bulk_targets(data)
+        if users is None:
+            return jsonify({"msg": f"ids(양의 정수 목록, 1~{_BULK_MAX}개) 또는 all_locked: true가 필요합니다."}), 400
+        skipped = [user.id for user in users if not user.is_locked]
+        targets = [user for user in users if user.is_locked]
+    for user in targets:
+        user.is_locked, user.failed_logins, user.lock_reason = False, 0, None
+    _user_audit(targets, f"관리자 계정 차단 해제 {len(targets)}건", decision="allow")
+    db.session.commit()
+    changed = [user.id for user in targets]
+    return jsonify(msg=f"{len(changed)}명 차단 해제", count=len(changed), changed=changed,
+                   skipped=skipped, not_found=not_found, actor=_security_actor())
+
+
+@admin_bp.post("/users/delete")
+@_admin_or_api_key_required
+def delete_users_bulk():
+    data = request.get_json(silent=True)
+    users, not_found = _bulk_targets(data)
+    if users is None:
+        return jsonify({"msg": f"ids(양의 정수 목록, 1~{_BULK_MAX}개)가 필요합니다."}), 400
+    me = current_user()
+    self_skipped = [user.id for user in users if me and user.id == me.id]
+    protected = [user.id for user in users if user.username in _PROTECTED_USERS and user.id not in self_skipped]
+    targets = [user for user in users if user.id not in self_skipped + protected]
+    targets, last_admin_skipped = _keep_last_admin(targets)
+    changed = [user.id for user in targets]
+    posts_deleted = 0
+    if targets:
+        _user_audit(targets, f"관리자 회원 삭제 {len(targets)}명")
+        posts_deleted = Post.query.filter(Post.author_id.in_(changed)).delete(synchronize_session=False)
+        User.query.filter(User.id.in_(changed)).delete(synchronize_session=False)
+    db.session.commit()
+    return jsonify(msg=f"{len(changed)}명 삭제 (게시글 {posts_deleted}건 포함)", count=len(changed),
+                   changed=changed, posts_deleted=posts_deleted, not_found=not_found,
+                   self_skipped=self_skipped, protected=protected,
+                   last_admin_skipped=last_admin_skipped, actor=_security_actor())
 
 
 @admin_bp.patch("/users/<int:user_id>")
@@ -210,6 +361,8 @@ def delete_user(user_id):
         return jsonify({"msg": "존재하지 않는 회원입니다."}), 404
     if target.id == me.id:
         return jsonify({"msg": "자기 자신은 삭제할 수 없습니다."}), 400
+    if target.username in _PROTECTED_USERS:
+        return jsonify({"msg": "시스템 계정은 삭제할 수 없습니다."}), 400
     if target.role >= ROLE_ADMIN and _admin_count(target.id) == 0:
         return jsonify({"msg": "마지막 관리자는 삭제할 수 없습니다."}), 400
 
@@ -639,7 +792,42 @@ def close_incident():
     incident = db.session.get(Incident, incident_id)
     if incident is None:
         return jsonify({"msg": "없는 인시던트"}), 404
-    incident.status = "closed"
-    incident.closed_at = datetime.now()
-    db.session.commit()
+    if incident.status != "closed":
+        incident.status = "closed"
+        incident.closed_at = datetime.now()
+        db.session.commit()
     return jsonify({"msg": "인시던트 종료", "incident": incident.to_dict()})
+
+
+@admin_bp.post("/incidents/close")
+@_admin_or_api_key_required
+def close_incidents_bulk():
+    """선택 또는 학생·심각도 조건의 열린 티켓 전부 종료(다른 페이지 포함)."""
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict):
+        return jsonify({"msg": "JSON 객체가 필요합니다."}), 400
+    query = Incident.query.filter_by(status="open")
+    wanted = _parse_ids(data)
+    if data.get("all_open") is True:
+        severity = data.get("severity")
+        if severity:
+            if not isinstance(severity, str) or severity not in _SEVERITY_RANK:
+                return jsonify({"msg": "severity 값이 올바르지 않습니다."}), 400
+            query = query.filter_by(severity=severity)
+        if data.get("student"):
+            query = query.filter_by(student=str(data["student"]))
+        targets, skipped, not_found = query.order_by(Incident.id).all(), [], []
+    elif wanted is not None:
+        targets = query.filter(Incident.id.in_(wanted)).order_by(Incident.id).all()
+        known = {value for (value,) in db.session.query(Incident.id).filter(Incident.id.in_(wanted))}
+        skipped = sorted(known - {incident.id for incident in targets})
+        not_found = sorted(wanted - known)
+    else:
+        return jsonify({"msg": f"ids(양의 정수 목록, 1~{_BULK_MAX}개) 또는 all_open: true가 필요합니다."}), 400
+    now = datetime.now()
+    for incident in targets:
+        incident.status, incident.closed_at = "closed", now
+    db.session.commit()
+    closed = [incident.id for incident in targets]
+    return jsonify(msg=f"인시던트 {len(closed)}건 종료", count=len(closed), closed=closed,
+                   skipped=skipped, not_found=not_found, actor=_security_actor())

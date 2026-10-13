@@ -4,15 +4,17 @@ Flask 게시판의 로그인·접근 제어·보안 이벤트를 Graylog와 Wazu
 n8n으로 알림과 계정 잠금·IP 차단·인시던트 대응을 연결하는 수업 실습 저장소입니다.
 기존 로그인 경보 봇의 제출 기록과 이후 실습 결과를 함께 보관합니다.
 
-**최근 확인: 2026-10-12.** 최신 수업의 Wazuh 이중 로그와 대시보드 페이징·정렬·
-심각도 필터를 팀 게시판에도 반영했습니다. 전체 테스트 155개가 통과했습니다.
-[적용 내용과 팀원 실행·검증 절차](docs/LESSON-UPDATES-20261012.md)를 확인하세요.
+**최근 확인: 2026-10-13.** 수업 저장소 `1aabb25`까지 비교한 개인 게시판 변경을 팀에 반영했습니다.
+회원 검색·서버 페이징·선택 차단/해제/삭제, 티켓 선택·전체 종료 및 반응형 화면을 추가했습니다.
+전체 pytest 172개와 unittest 101개, 임시 DB의 데스크톱·모바일 브라우저 검증이 통과했습니다.
+[적용 내용과 팀원 실행·검증 절차](docs/LESSON-UPDATES-20261013.md)를 확인하세요.
 
 ## 실행·검증 문서
 
 | 목적 | 문서 |
 | --- | --- |
 | 게시판·DB·n8n 실행 준비 | [SETUP.md](SETUP.md) |
+| 10-13 회원 일괄 관리·티켓 종료·팀원 적용 절차 | [수업 업데이트 이식 기록](docs/LESSON-UPDATES-20261013.md) |
 | 10-12 최신 수업 반영 및 팀원 적용 절차 | [수업 업데이트 이식 기록](docs/LESSON-UPDATES-20261012.md) |
 | Wazuh Manager·Indexer·Dashboard 구성과 기존 설정 보존 | [Wazuh 실행 안내](wazuh/README.md) |
 | 팀원별 게시판 경로 설정 및 FIM 생성·수정·삭제 검증 | [Wazuh 개인 경로 설정 안내](docs/WAZUH-PERSONAL-PATH-GUIDE.md) |
@@ -131,8 +133,8 @@ Dashboard 표에 Agent 이름을 표시하려면 위쪽의 **`columns hidden`**�
 | 10-06 | Gobuster·Nikto 웹 스캔 — 404 탐지 로그 연결 복구, Graylog 이벤트·차단 후 재시도 확인 | 이 문서 "10-06 Gobuster 404 스캔 탐지 연결 복구" |
 | 10-08 | Wazuh 4.9.0 Dashboard·FIM 확인, 개인별 LLM 점검, Graylog Alerts 내보내기 | 이 문서 "10-08 Wazuh Dashboard 및 Graylog 설정 기록", `wazuh/README.md`, `graylog/exports/` |
 
-팀 게시판의 자동 테스트는 `pytest` 전체 155개, `unittest` 84개입니다.
-실행 방법과 적용 범위는 [최신 검증 안내](docs/LESSON-UPDATES-20261012.md)에 있습니다.
+팀 게시판의 자동 테스트는 `pytest` 전체 172개, `unittest` 101개입니다.
+실행 방법과 적용 범위는 [최신 검증 안내](docs/LESSON-UPDATES-20261013.md)에 있습니다.
 
 ---
 
@@ -762,15 +764,15 @@ GELF로 받은 `src_ip`, `syn_count`, `student`가 메시지 필드로 저장되
 | `scripts/*_n8n_*.js` | n8n 워크플로 점검·갱신·실행 확인 |
 | `scripts/relocate_environment.ps1` | 자리·PC를 옮긴 뒤 환경 재배치 (`docs/RELOCATION-RUNBOOK.md`) |
 | `docs/SUBMISSION-CHECKLIST.md` | 항목별 확인 기록 |
-| `tests/` | 전체 pytest 155개 / unittest 84개 |
+| `tests/` | 전체 pytest 172개 / unittest 101개 |
 
 두 캡처 스크립트는 API 키와 DB 비밀번호를 **화면에 찍지 않습니다.** `.env`에서 읽어
 헤더와 컨테이너 환경변수로만 넘깁니다.
 
 ```powershell
 .venv\Scripts\python.exe -m pip install -r requirements-test.txt
-.venv\Scripts\python.exe -m unittest discover -s tests    # Ran 84 tests ... OK
-.venv\Scripts\python.exe -m pytest tests -q               # 155 passed
+.venv\Scripts\python.exe -m unittest discover -s tests    # Ran 101 tests ... OK
+.venv\Scripts\python.exe -m pytest tests -q               # 172 passed
 ```
 
 `requirements-test.txt`로 테스트 의존성을 설치합니다. 기존 단위 테스트는 전송기 4 ·
