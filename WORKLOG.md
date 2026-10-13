@@ -15,6 +15,9 @@
 ### 공통 게시판 — 회원 일괄 관리·티켓 종료
 
 작성자: 김명준 / `myeongjundev`. 작업 브랜치: `codex/lesson-updates-20261013`.
+PR: [#15](https://github.com/NoBugs-Aleph/flask-board-team/pull/15).
+구현 커밋: [818c97f](https://github.com/myeongjundev/flask-board-team/commit/818c97f).
+PR의 진행·Merge 상태와 최종 커밋은 연결된 GitHub 기록에서 확인합니다.
 
 - 개인 `flask-board`에 검증한 수업 최신 `1aabb25` 기능을 팀 `flask-board/`에 이식했습니다.
 - 회원 서버 검색·페이징·상태 필터·선택 차단/해제/삭제, 티켓 선택·전체 종료와 반응형 화면을 추가했습니다.
