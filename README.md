@@ -32,6 +32,7 @@ GitHub Free의 공개 저장소입니다. 조장 `myeongjundev`가 조직을 관
 - [기존 게시판 전체 README](./flask-board/README.md)
 - [팀원 PC Wazuh 수집 문제 검증 가이드](./flask-board/docs/WAZUH-LLM-VERIFICATION-GUIDE.md)
 - [10-12 최신 수업 적용·팀원 실행 및 검증 방법](./flask-board/docs/LESSON-UPDATES-20261012.md)
+- [10-13 회원 일괄 관리·티켓 종료·실행 및 검증 방법](./flask-board/docs/LESSON-UPDATES-20261013.md)
 - [10-12 전체 변경 현황·DB 연결 복구·Suricata 코드](docs/CHANGE-STATUS-20261012.md)
 
 ## 게시판 빠른 실행 — 협업 기능 확인용
@@ -72,6 +73,12 @@ $env:SECURITY_LOG_PATH = ''
 ```
 
 실제 검증 결과는 [검증 기록](docs/VERIFICATION.md)에 남깁니다.
+
+2026-10-13 수업 저장소 `1aabb25`까지 개인 게시판과 비교한 최신 기능을 팀에도 반영했습니다.
+관리자 회원 검색·서버 페이징·선택 차단/해제/삭제, 대시보드 티켓 선택·전체 종료와
+반응형 화면을 추가했습니다. 전체 pytest **172개**, unittest **101개**와
+임시 DB를 사용한 데스크톱·모바일 브라우저 검증이 통과했습니다.
+사용 방법은 [10-13 적용 기록](flask-board/docs/LESSON-UPDATES-20261013.md)을 참고하세요.
 
 2026-10-12에 개인 게시판의 최신 수업 변경을 팀 게시판에도 적용했습니다.
 404·API 인증 실패·골드 열람·과잉권한 Wazuh 로그, 두 대시보드 목록의

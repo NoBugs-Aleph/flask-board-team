@@ -10,8 +10,9 @@
 
 {% include 'partials/_nav.html' %}
 {% include 'partials/_pager.html' %}
+{% include 'partials/_table_sort.html' %}
 
-<main class="max-w-6xl mx-auto px-4 py-6 flex-1 w-full">
+<main class="max-w-6xl xl:max-w-7xl 2xl:max-w-screen-2xl mx-auto px-4 py-6 flex-1 w-full">
 
   <div class="rounded-2xl p-5 mb-5 bg-gradient-to-r from-slate-800 to-slate-600 text-white shadow-sm">
     <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -101,9 +102,12 @@
           <button data-role="0" class="role-tab px-3 py-1.5 rounded-md">일반</button>
         </div>
       </div>
-      <div class="grid gap-2 sm:grid-cols-[1fr_110px_auto]">
+      <div class="grid gap-2 sm:grid-cols-[1fr_120px_110px_auto]">
         <input id="member-search" type="search" placeholder="아이디 · 부여자 · 사유 검색"
                class="min-w-0 rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+        <select id="member-locked" aria-label="계정 상태" class="rounded-lg border border-gray-300 px-3 py-2 text-sm">
+          <option value="">전체 상태</option><option value="1">차단됨</option><option value="0">정상</option>
+        </select>
         <select id="member-page-size" aria-label="쪽당 인원" class="rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
           <option value="10" selected>10명씩</option>
           <option value="20">20명씩</option>
@@ -113,19 +117,29 @@
       </div>
     </div>
 
+    <div class="px-4 py-3 flex flex-wrap items-center gap-2 text-xs border-b border-gray-100">
+      <label class="flex items-center gap-1"><input id="member-check-all" type="checkbox"> 이 페이지 선택</label>
+      <span>선택 <b id="member-selected-count">0</b>명</span>
+      <button id="member-lock-selected" disabled class="bulk-member rounded-lg bg-red-600 text-white px-3 py-2 disabled:opacity-40">선택 차단</button>
+      <button id="member-unlock-selected" disabled class="bulk-member rounded-lg bg-emerald-600 text-white px-3 py-2 disabled:opacity-40">선택 해제</button>
+      <button id="member-delete-selected" disabled class="bulk-member rounded-lg border border-red-300 text-red-600 px-3 py-2 disabled:opacity-40">선택 삭제</button>
+      <button id="member-unlock-all" class="rounded-lg border border-emerald-300 text-emerald-700 px-3 py-2">조건에 맞는 차단 회원 전체 해제</button>
+    </div>
     {# 넓은 화면: 고정 폭 표. 가로 스크롤 없이 한 화면에 들어간다. #}
     <table class="hidden lg:table w-full table-fixed text-sm">
-      <thead class="bg-gray-50 text-gray-500 text-xs">
+      <thead id="member-head" class="bg-gray-50 text-gray-500 text-xs">
         <tr>
-          <th class="w-48 text-left px-4 py-2.5 font-medium">회원</th>
-          <th class="w-28 text-left px-2 py-2.5 font-medium">등급</th>
+          <th class="w-10 px-2"><span class="sr-only">선택</span></th>
+          <th data-sort="username" class="w-40 text-left px-4 py-2.5 font-medium">회원</th>
+          <th data-sort="role" class="w-28 text-left px-2 py-2.5 font-medium">등급</th>
+          <th data-sort="is_locked" class="w-20 text-left px-2 py-2.5 font-medium">상태</th>
           <th class="w-16 text-right px-2 py-2.5 font-medium">게시글</th>
           <th class="text-left px-4 py-2.5 font-medium">최근 권한 변경</th>
-          <th class="w-[20rem] text-right px-4 py-2.5 font-medium">관리</th>
+          <th class="w-[19rem] text-right px-4 py-2.5 font-medium">관리</th>
         </tr>
       </thead>
       <tbody id="user-rows" class="divide-y divide-gray-100">
-        <tr><td colspan="5" class="px-5 py-10 text-center text-gray-400">불러오는 중...</td></tr>
+        <tr><td colspan="7" class="px-5 py-10 text-center text-gray-400">불러오는 중...</td></tr>
       </tbody>
     </table>
     {# 좁은 화면: 카드 목록 #}
@@ -149,7 +163,11 @@ const ROLE_BADGE = {
 
 // getCookie() 와 authHeaders() 는 _nav.html, escapeHtml()·renderPager() 는 _pager.html 이 제공한다.
 
-const members = { all: [], roles: [], role: '', q: '', page: 1, pageSize: 10 };
+const members = { all: [], roles: [], role: '', locked: '', q: '', page: 1, pageSize: 10, total: 0, sort: 'role', order: 'desc' };
+const memberSelected = new Set();
+let memberRequest = 0;
+let memberLoading = false;
+let memberActionPending = false;
 
 function flash(message, ok = true) {
   const box = document.getElementById('flash');
@@ -163,36 +181,52 @@ function flash(message, ok = true) {
 }
 
 async function loadUsers() {
-  const res = await fetch('/api/admin/users', { headers: authHeaders() });
+  const requestId = ++memberRequest;
+  memberLoading = true;
+  memberSelected.clear();
+  updateMemberSelection();
+  const params = new URLSearchParams({ page: members.page, per_page: members.pageSize, sort: members.sort, order: members.order });
+  for (const key of ['role', 'locked', 'q']) if (members[key] !== '') params.set(key, members[key]);
+  let res;
+  try { res = await fetch('/api/admin/users?' + params, { headers: authHeaders() }); }
+  catch (error) {
+    if (requestId === memberRequest) {
+      memberLoading = false;
+      members.all = [];
+      members.total = 0;
+      renderMembers();
+      flash('회원 목록을 불러오지 못했습니다.', false);
+    }
+    return;
+  }
+  if (requestId !== memberRequest) return;
   if (!res.ok) {
     const data = await res.json().catch(() => ({}));
     const message = `${res.status} · ${escapeHtml(data.msg || '회원 목록을 불러오지 못했습니다.')}`;
-    document.getElementById('user-rows').innerHTML = `<tr><td colspan="5" class="px-5 py-10 text-center text-red-500">${message}</td></tr>`;
+    document.getElementById('user-rows').innerHTML = `<tr><td colspan="7" class="px-5 py-10 text-center text-red-500">${message}</td></tr>`;
     document.getElementById('user-cards').innerHTML = `<li class="px-4 py-10 text-center text-red-500">${message}</li>`;
+    members.all = [];
+    memberLoading = false;
+    document.getElementById('member-pager').replaceChildren();
+    updateMemberSelection();
     return;
   }
 
   const data = await res.json();
+  if (requestId !== memberRequest) return;
+  if (members.page > data.total_pages) { members.page = data.total_pages; return loadUsers(); }
   members.all = data.users;
+  memberLoading = false;
   members.roles = data.roles;
-  const count = role => data.users.filter(u => u.role === role).length;
-  document.getElementById('stat-total').textContent = data.users.length;
+  members.total = data.total;
+  const count = role => data.summary[role] || 0;
+  document.getElementById('stat-total').textContent = Object.values(data.summary).reduce((sum, value) => sum + value, 0);
   document.getElementById('stat-admin').textContent = count(2);
   document.getElementById('stat-gold').textContent = count(1);
   document.getElementById('stat-user').textContent = count(0);
   document.getElementById('username-options').innerHTML =
     data.users.map(u => `<option value="${escapeHtml(u.username)}">`).join('');
   renderMembers();
-}
-
-function filteredMembers() {
-  const q = members.q.toLowerCase();
-  return members.all.filter(user => {
-    if (members.role !== '' && user.role !== Number(members.role)) return false;
-    if (!q) return true;
-    return [user.username, user.role_granted_by, user.role_reason]
-      .some(value => String(value || '').toLowerCase().includes(q));
-  });
 }
 
 function syncMemberControls() {
@@ -235,7 +269,7 @@ function memberActions(user) {
   const del = document.createElement('button');
   del.className = 'shrink-0 whitespace-nowrap px-2.5 py-1.5 rounded-lg text-sm border border-red-200 text-red-600 hover:bg-red-50 disabled:opacity-40 disabled:cursor-not-allowed';
   del.textContent = '삭제';
-  del.disabled = user.is_me;
+  del.disabled = user.is_me || user.username === 'soarbot';
   if (user.is_me) del.title = '자기 자신은 삭제할 수 없습니다.';
   del.addEventListener('click', () => deleteUser(user.id, user.username, user.post_count));
 
@@ -263,18 +297,16 @@ function grantInfo(user) {
 
 function renderMembers() {
   syncMemberControls();
-  const list = filteredMembers();
-  const lastPage = Math.max(1, Math.ceil(list.length / members.pageSize));
-  members.page = Math.min(members.page, lastPage);
-  const pageItems = list.slice((members.page - 1) * members.pageSize, members.page * members.pageSize);
-  document.getElementById('member-total').textContent = `${list.length}명`;
+  const pageItems = members.all;
+  document.getElementById('member-total').textContent = `${members.total}명`;
+  paintSortHeaders(document.getElementById('member-head'), members);
 
   const tbody = document.getElementById('user-rows');
   const cards = document.getElementById('user-cards');
   tbody.innerHTML = '';
   cards.innerHTML = '';
   if (!pageItems.length) {
-    tbody.innerHTML = '<tr><td colspan="5" class="px-5 py-10 text-center text-gray-400">조건에 맞는 회원이 없습니다.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="7" class="px-5 py-10 text-center text-gray-400">조건에 맞는 회원이 없습니다.</td></tr>';
     cards.innerHTML = '<li class="px-4 py-10 text-center text-gray-400">조건에 맞는 회원이 없습니다.</li>';
   }
 
@@ -282,8 +314,10 @@ function renderMembers() {
     const tr = document.createElement('tr');
     tr.className = user.is_me ? 'bg-indigo-50/40' : 'hover:bg-gray-50';
     tr.innerHTML = `
+      <td class="px-2 py-3">${memberCheckbox(user)}</td>
       <td class="px-4 py-3 truncate">${memberName(user)}</td>
       <td class="px-2 py-3">${roleBadge(user)}</td>
+      <td class="px-2 py-3 text-xs ${user.is_locked ? 'text-red-600' : 'text-emerald-600'}">${user.is_locked ? '차단됨' : '정상'}</td>
       <td class="px-2 py-3 text-right text-gray-500 tabular-nums">${user.post_count}</td>
       <td class="px-4 py-3">${grantInfo(user)}</td>
       <td class="px-4 py-3"></td>`;
@@ -294,6 +328,7 @@ function renderMembers() {
     li.className = `px-4 py-3 space-y-2 ${user.is_me ? 'bg-indigo-50/40' : ''}`;
     li.innerHTML = `
       <div class="flex items-center justify-between gap-2">
+        ${memberCheckbox(user)}
         <div class="min-w-0 truncate">${memberName(user)}</div>
         ${roleBadge(user)}
       </div>
@@ -307,14 +342,55 @@ function renderMembers() {
   });
 
   renderPager(document.getElementById('member-pager'), {
-    page: members.page, pageSize: members.pageSize, total: list.length,
-    onChange: page => { members.page = page; renderMembers(); },
+    page: members.page, pageSize: members.pageSize, total: members.total,
+    onChange: page => { members.page = page; loadUsers(); },
   });
+  updateMemberSelection();
 }
 
 function setMemberFilter(patch) {
   Object.assign(members, patch, { page: 1 });
-  renderMembers();
+  loadUsers();
+}
+
+function memberCheckbox(user) {
+  return `<input type="checkbox" class="member-check shrink-0" value="${user.id}" aria-label="${escapeHtml(user.username)} 선택" ${memberSelected.has(user.id) ? 'checked' : ''} ${user.is_me || user.username === 'soarbot' ? 'disabled' : ''}>`;
+}
+
+function updateMemberSelection() {
+  const available = members.all.filter(user => !user.is_me && user.username !== 'soarbot');
+  const all = document.getElementById('member-check-all');
+  document.getElementById('member-selected-count').textContent = memberSelected.size;
+  document.querySelectorAll('.bulk-member').forEach(button => { button.disabled = memberSelected.size === 0 || memberLoading || memberActionPending; });
+  document.getElementById('member-unlock-all').disabled = memberLoading || memberActionPending;
+  all.checked = available.length > 0 && memberSelected.size === available.length;
+  all.indeterminate = memberSelected.size > 0 && memberSelected.size < available.length;
+  all.disabled = available.length === 0 || memberLoading || memberActionPending;
+  document.querySelectorAll('.member-check').forEach(box => {
+    box.checked = memberSelected.has(Number(box.value));
+    box.disabled = memberLoading || memberActionPending || !available.some(user => user.id === Number(box.value));
+  });
+}
+
+async function bulkMembers(action, allLocked = false) {
+  if (memberLoading || memberActionPending || (!allLocked && !memberSelected.size)) return;
+  const labels = { lock: '차단', unlock: '차단 해제', delete: '삭제' };
+  const scope = allLocked ? '검색·등급 조건에 맞는 차단 회원 전체(다른 페이지 포함)' : `선택한 회원 ${memberSelected.size}명`;
+  if (!confirm(`${scope}을 ${labels[action]}할까요?${action === 'delete' ? ' 해당 회원의 게시글도 함께 삭제됩니다.' : ''}`)) return;
+  const payload = allLocked ? { all_locked: true, q: members.q, role: members.role } : { ids: [...memberSelected] };
+  memberActionPending = true;
+  updateMemberSelection();
+  try {
+    const res = await fetch('/api/admin/users/' + action, {
+      method: 'POST', headers: authHeaders({ 'Content-Type': 'application/json' }), body: JSON.stringify(payload),
+    });
+    const data = await res.json().catch(() => ({}));
+    const skipped = ['self_skipped', 'protected', 'last_admin_skipped', 'skipped', 'not_found']
+      .reduce((sum, key) => sum + (data[key]?.length || 0), 0);
+    flash((data.msg || '처리 실패') + (skipped ? ` · 보호·처리 제외 ${skipped}명` : ''), res.ok);
+    if (res.ok) await Promise.all([loadUsers(), loadViolations()]);
+  } catch (error) { flash('회원 처리 요청에 실패했습니다.', false); }
+  finally { memberActionPending = false; updateMemberSelection(); }
 }
 
 async function grantRole() {
@@ -437,6 +513,24 @@ document.getElementById('member-search').addEventListener('input',
   debounce(event => setMemberFilter({ q: event.target.value.trim() })));
 document.getElementById('member-page-size').addEventListener('change',
   event => setMemberFilter({ pageSize: Number(event.target.value) }));
+document.getElementById('member-locked').addEventListener('change',
+  event => setMemberFilter({ locked: event.target.value }));
+document.querySelectorAll('#user-rows, #user-cards').forEach(container => container.addEventListener('change', event => {
+  if (!event.target.matches('.member-check')) return;
+  const id = Number(event.target.value);
+  event.target.checked ? memberSelected.add(id) : memberSelected.delete(id);
+  updateMemberSelection();
+}));
+document.getElementById('member-check-all').addEventListener('change', event => {
+  memberSelected.clear();
+  if (event.target.checked) members.all.filter(user => !user.is_me && user.username !== 'soarbot').forEach(user => memberSelected.add(user.id));
+  updateMemberSelection();
+});
+for (const action of ['lock', 'unlock', 'delete']) {
+  document.getElementById(`member-${action}-selected`).addEventListener('click', () => bulkMembers(action));
+}
+document.getElementById('member-unlock-all').addEventListener('click', () => bulkMembers('unlock', true));
+bindSortHeaders(document.getElementById('member-head'), members, loadUsers);
 
 document.addEventListener('DOMContentLoaded', () => {
   loadUsers();
