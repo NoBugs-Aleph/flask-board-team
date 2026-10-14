@@ -4,6 +4,7 @@ from datetime import datetime, timedelta
 from functools import wraps
 
 from flask import Blueprint, current_app, g, jsonify, request
+from sqlalchemy.exc import IntegrityError
 
 from controllers.authz import api_role_required, current_user
 from controllers.gelf import request_src_ip, send_gelf
@@ -728,7 +729,12 @@ def block_ips_bulk():
             student=actor[:50], src_ip=ip, fail_count=0, decision="deny", severity="Medium",
             reason=f"관리자 IP 차단: {reason}"[:200], users="", source="admin-console",
         ))
-    db.session.commit()
+    try:
+        db.session.commit()
+    except IntegrityError:
+        # n8n 단건 차단 등이 같은 IP를 먼저 넣었다. 묶음 전체를 되돌리고 다시 시도하게 한다.
+        db.session.rollback()
+        return jsonify({"msg": "다른 요청이 같은 IP를 먼저 차단했습니다. 다시 시도하세요."}), 409
     changed = sorted(targets)
     return jsonify(msg=f"{len(changed)}개 IP 차단", count=len(changed), changed=changed,
                    skipped=skipped, invalid=sorted(invalid), self_skipped=self_skipped,
@@ -754,6 +760,13 @@ def unblock_ips_bulk():
     changed = sorted(row.ip for row in rows)
     for row in rows:
         db.session.delete(row)
+    if changed:
+        db.session.add(SecurityEvent(
+            student=_security_actor()[:50], src_ip=request_src_ip() or "0.0.0.0", fail_count=0,
+            decision="allow", severity="Medium",
+            reason=f"관리자 IP 차단 해제 {len(changed)}건: {', '.join(changed)}"[:200],
+            users="", source="admin-console",
+        ))
     db.session.commit()
     return jsonify(msg=f"{len(changed)}개 IP 차단 해제", count=len(changed), changed=changed,
                    not_found=not_found, actor=_security_actor())

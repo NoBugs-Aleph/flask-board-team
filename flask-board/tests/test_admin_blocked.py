@@ -2,12 +2,14 @@
 import os
 import re
 import unittest
+from unittest import mock
 
 os.environ['DATABASE_URL'] = 'sqlite:///:memory:'
 os.environ['GELF_ENABLED'] = '0'
 os.environ['SECURITY_LOG_PATH'] = ''
 
 from flask_jwt_extended import create_access_token
+from sqlalchemy import text
 from werkzeug.security import generate_password_hash
 
 from app import create_app
@@ -87,6 +89,25 @@ class AdminBlockedTestCase(unittest.TestCase):
         self.client.post(UNBLOCK, headers=self.key, json={'all': True, 'q': '198.51'})
         self.assertEqual(self.blocked_ips(), ['203.0.113.9'])
         self.assertEqual(self.client.post(UNBLOCK, headers=self.key, json={'all': True}).get_json()['count'], 1)
+        self.assertEqual(self.blocked_ips(), [])
+
+    def test_unblock_records_one_allow_audit_event(self):
+        self.block('198.51.100.1', '198.51.100.2')
+        self.client.post(UNBLOCK, headers=self.key, json={'all': True})
+        self.client.post(UNBLOCK, headers=self.key, json={'ips': ['198.51.100.99']})  # 없는 IP는 기록하지 않는다
+        with self.app.app_context():
+            allowed = SecurityEvent.query.filter_by(source='admin-console', decision='allow').all()
+        self.assertEqual(len(allowed), 1)
+        self.assertIn('198.51.100.1, 198.51.100.2', allowed[0].reason)
+
+    def test_concurrent_insert_of_same_ip_returns_409_without_partial_rows(self):
+        def other_request_blocks_first():
+            # 중복 확인이 끝난 직후 n8n 단건 차단이 같은 IP를 넣은 상황
+            db.session.execute(text("INSERT INTO blocked_ips (ip, blocked_at) VALUES ('198.51.100.7', CURRENT_TIMESTAMP)"))
+            return 'apikey'
+        with mock.patch('controllers.admin_controller._security_actor', side_effect=other_request_blocks_first):
+            res = self.client.post(BLOCK, headers=self.key, json={'ips': ['198.51.100.6', '198.51.100.7']})
+        self.assertEqual(res.status_code, 409)
         self.assertEqual(self.blocked_ips(), [])
 
     def test_unblock_removes_legacy_malformed_rows(self):
