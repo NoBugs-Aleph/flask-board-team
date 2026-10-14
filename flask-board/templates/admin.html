@@ -296,8 +296,10 @@ function memberActions(user) {
     ? 'shrink-0 whitespace-nowrap px-2.5 py-1.5 rounded-lg text-sm font-semibold bg-emerald-600 text-white hover:bg-emerald-700'
     : 'shrink-0 whitespace-nowrap px-2.5 py-1.5 rounded-lg text-sm border border-red-300 text-red-700 hover:bg-red-50 disabled:opacity-40 disabled:cursor-not-allowed';
   lockToggle.textContent = user.is_locked ? '해제' : '차단';
-  lockToggle.disabled = !user.is_locked && (user.is_me || user.username === 'soarbot');
-  lockToggle.title = lockToggle.disabled ? '본인·시스템 계정은 차단할 수 없습니다.' : user.is_locked ? '잠금 해제·실패 횟수 초기화' : '로그인 차단';
+  lockToggle.classList.add('member-lock-toggle');
+  lockToggle.dataset.protected = !user.is_locked && (user.is_me || user.username === 'soarbot') ? '1' : '';
+  lockToggle.disabled = !!lockToggle.dataset.protected || memberLoading || memberActionPending;
+  lockToggle.title = lockToggle.dataset.protected ? '본인·시스템 계정은 차단할 수 없습니다.' : user.is_locked ? '잠금 해제·실패 횟수 초기화' : '로그인 차단';
   lockToggle.addEventListener('click', () => bulkMembers(user.is_locked ? 'unlock' : 'lock', { ids: [user.id], label: `${user.username}님` }));
 
   const select = document.createElement('select');
@@ -396,7 +398,7 @@ function renderMembers() {
         <div class="min-w-0 truncate">${memberName(user)}</div>
         ${roleBadge(user)}
       </div>
-      <div class="text-xs">${memberStatus(user)}</div>
+      ${user.is_locked || user.failed_logins ? `<div class="text-xs">${memberStatus(user)}</div>` : ''}
       <div class="text-sm">${grantInfo(user)}</div>
       <p class="text-xs text-gray-400">게시글 ${user.post_count}건</p>`;
     const actions = memberActions(user);
@@ -435,6 +437,8 @@ function updateMemberSelection() {
     box.checked = memberSelected.has(Number(box.value));
     box.disabled = memberLoading || memberActionPending || !available.some(user => user.id === Number(box.value));
   });
+  // 행별 해제·차단도 요청 중에는 잠근다(누르면 아무 반응 없이 무시되지 않게).
+  document.querySelectorAll('.member-lock-toggle').forEach(button => { button.disabled = !!button.dataset.protected || memberLoading || memberActionPending; });
 }
 
 async function bulkMembers(action, { allLocked = false, ids = null, label = null } = {}) {
@@ -453,7 +457,8 @@ async function bulkMembers(action, { allLocked = false, ids = null, label = null
     const data = await res.json().catch(() => ({}));
     const skipped = ['self_skipped', 'protected', 'last_admin_skipped', 'skipped', 'not_found']
       .reduce((sum, key) => sum + (data[key]?.length || 0), 0);
-    flash((data.msg || '처리 실패') + (skipped ? ` · 보호·처리 제외 ${skipped}명` : ''), res.ok);
+    // 0명 처리이고 제외만 있으면(예: 마지막 관리자 보호) 성공색으로 보이지 않게 한다.
+    flash((data.msg || '처리 실패') + (skipped ? ` · 보호·처리 제외 ${skipped}명` : ''), res.ok && !(data.count === 0 && skipped));
     if (res.ok) await Promise.all([loadUsers(), loadViolations()]);
   } catch (error) { flash('회원 처리 요청에 실패했습니다.', false); }
   finally { memberActionPending = false; updateMemberSelection(); }
