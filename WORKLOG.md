@@ -10,6 +10,22 @@
 - 예정·진행·완료를 구분하고, PR 상태는 연결된 GitHub 기록으로 확인합니다.
 - 설정 예제는 본인 PC 경로를 사용합니다. 다른 사람이 적용할 때는 자신의 경로로 변경합니다.
 
+## 2026-10-14
+
+### 공통 게시판 — 차단 IP 검색·일괄 차단/해제
+
+작성자: 김명준 / `myeongjundev`. 작업 브랜치: `claude/lesson-updates-20261014`.
+PR: [#16](https://github.com/NoBugs-Aleph/flask-board-team/pull/16).
+구현 커밋: [ca324e1](https://github.com/myeongjundev/flask-board-team/commit/ca324e1).
+PR의 진행·Merge 상태와 최종 커밋은 연결된 GitHub 기록에서 확인합니다.
+
+- 수업 최신 `fc5d09b`를 개인 `flask-board`에서 먼저 검증하고 팀 `flask-board/`에 이식했습니다.
+- `/admin`에 차단 IP 목록을 추가했습니다. 검색·정렬·페이징, 여러 IP 일괄 차단, 선택·행별·검색 결과 전체 해제를 지원합니다.
+- 리뷰에서 찾은 해제 감사 누락, 동시 차단 500, 요청 중 버튼 재활성화, 디바운스 전 검색어 문제를 고쳤습니다.
+- 서버는 형식 오류·이미 차단·요청자 본인 IP를 건너뜁니다. n8n의 단건 차단 API와 무페이징 목록 조회는 그대로입니다.
+- 팀 전체 pytest 183개(86 subtests)와 unittest 112개가 통과했습니다.
+  [사용·검증 기록](flask-board/docs/LESSON-UPDATES-20261014.md).
+
 ## 2026-10-13
 
 ### 공통 게시판 — 회원 일괄 관리·티켓 종료
