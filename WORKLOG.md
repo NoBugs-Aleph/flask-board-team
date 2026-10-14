@@ -15,6 +15,8 @@
 ### 공통 게시판 — 차단 IP 검색·일괄 차단/해제
 
 작성자: 김명준 / `myeongjundev`. 작업 브랜치: `claude/lesson-updates-20261014`.
+PR: [#16](https://github.com/NoBugs-Aleph/flask-board-team/pull/16).
+구현 커밋: [ca324e1](https://github.com/myeongjundev/flask-board-team/commit/ca324e1).
 PR의 진행·Merge 상태와 최종 커밋은 연결된 GitHub 기록에서 확인합니다.
 
 - 수업 최신 `fc5d09b`를 개인 `flask-board`에서 먼저 검증하고 팀 `flask-board/`에 이식했습니다.
