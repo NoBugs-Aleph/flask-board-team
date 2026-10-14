@@ -148,9 +148,55 @@
     <div id="member-pager" class="flex flex-col sm:flex-row items-center justify-between gap-2 px-4 py-3 border-t border-gray-100"></div>
   </section>
 
+  <section class="mt-5 bg-white rounded-xl shadow-sm border border-gray-100">
+    <div class="p-4 border-b border-gray-100 space-y-3">
+      <h2 class="font-bold text-gray-900">⛔ 차단 IP 목록 <span id="blocked-total" class="ml-1 text-sm font-normal text-gray-400"></span></h2>
+      <div class="grid gap-2 sm:grid-cols-[1fr_1fr_auto]">
+        <input id="block-ips" type="text" placeholder="차단할 IP (쉼표·공백 구분: 198.51.100.7, 2001:db8::1)"
+               class="min-w-0 rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+        <input id="block-reason" type="text" maxlength="200" placeholder="사유(선택)"
+               class="min-w-0 rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+        <button id="block-submit" class="rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-40">차단</button>
+      </div>
+      <div class="grid gap-2 sm:grid-cols-[1fr_110px_auto]">
+        <input id="blocked-search" type="search" placeholder="IP · 사유 · 차단자 검색"
+               class="min-w-0 rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+        <select id="blocked-page-size" aria-label="쪽당 개수" class="rounded-lg border border-gray-300 px-3 py-2 text-sm">
+          <option value="10" selected>10개씩</option><option value="20">20개씩</option><option value="50">50개씩</option>
+        </select>
+        <button id="blocked-refresh" class="rounded-lg border border-gray-300 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50">새로고침</button>
+      </div>
+    </div>
+
+    <div class="px-4 py-3 flex flex-wrap items-center gap-2 text-xs border-b border-gray-100">
+      <label class="flex items-center gap-1"><input id="blocked-check-all" type="checkbox"> 이 페이지 선택</label>
+      <span>선택 <b id="blocked-selected-count">0</b>개</span>
+      <button id="blocked-unblock-selected" disabled class="rounded-lg bg-emerald-600 text-white px-3 py-2 disabled:opacity-40">선택 차단 해제</button>
+      <button id="blocked-unblock-all" class="rounded-lg border border-emerald-300 text-emerald-700 px-3 py-2 disabled:opacity-40">검색 결과 전체 차단 해제</button>
+    </div>
+    <table class="hidden lg:table w-full table-fixed text-sm">
+      <thead id="blocked-head" class="bg-gray-50 text-gray-500 text-xs">
+        <tr>
+          <th class="w-10 px-2"><span class="sr-only">선택</span></th>
+          <th data-sort="ip" class="w-64 text-left px-4 py-2.5 font-medium">IP</th>
+          <th class="text-left px-4 py-2.5 font-medium">사유</th>
+          <th data-sort="blocked_by" class="w-40 text-left px-4 py-2.5 font-medium">차단자</th>
+          <th data-sort="blocked_at" class="w-44 text-left px-4 py-2.5 font-medium">차단 시각</th>
+          <th class="w-20 text-right px-4 py-2.5 font-medium">관리</th>
+        </tr>
+      </thead>
+      <tbody id="blocked-rows" class="divide-y divide-gray-100">
+        <tr><td colspan="6" class="px-5 py-10 text-center text-gray-400">불러오는 중...</td></tr>
+      </tbody>
+    </table>
+    <ul id="blocked-cards" class="lg:hidden divide-y divide-gray-100"></ul>
+    <div id="blocked-pager" class="flex flex-col sm:flex-row items-center justify-between gap-2 px-4 py-3 border-t border-gray-100"></div>
+  </section>
+
   <p class="mt-4 text-xs text-gray-400 leading-relaxed">
     안전장치: 자기 자신은 삭제할 수 없고 스스로 등급을 내릴 수 없습니다.
     마지막 남은 관리자도 강등·삭제할 수 없습니다. 회원을 삭제하면 그 회원의 게시글도 함께 삭제됩니다.
+    지금 접속한 본인 IP는 차단하지 않습니다(관리자 화면이 바로 403이 되기 때문입니다).
   </p>
 </main>
 
@@ -532,9 +578,158 @@ for (const action of ['lock', 'unlock', 'delete']) {
 document.getElementById('member-unlock-all').addEventListener('click', () => bulkMembers('unlock', true));
 bindSortHeaders(document.getElementById('member-head'), members, loadUsers);
 
+// ── 차단 IP 표: 회원 표와 같은 서버 페이징·선택 규칙. 키는 IP 문자열. ──
+const blocked = { all: [], q: '', page: 1, pageSize: 10, total: 0, sort: 'blocked_at', order: 'desc' };
+const blockedSelected = new Set();
+let blockedRequest = 0;
+let blockedBusy = false;
+
+async function loadBlocked() {
+  const requestId = ++blockedRequest;
+  blockedBusy = true;
+  blockedSelected.clear();
+  updateBlockedSelection();
+  const params = new URLSearchParams({ page: blocked.page, per_page: blocked.pageSize, sort: blocked.sort, order: blocked.order });
+  if (blocked.q) params.set('q', blocked.q);
+  let res, data;
+  try {
+    res = await fetch('/api/admin/blocked?' + params, { headers: authHeaders() });
+    data = await res.json().catch(() => ({}));
+  } catch (error) { res = null; data = {}; }
+  if (requestId !== blockedRequest) return;
+  blockedBusy = false;
+  if (!res || !res.ok) {
+    blocked.all = [];
+    const message = `${res ? res.status + ' · ' : ''}${escapeHtml(data.msg || '차단 IP 목록을 불러오지 못했습니다.')}`;
+    document.getElementById('blocked-rows').innerHTML = `<tr><td colspan="6" class="px-5 py-10 text-center text-red-500">${message}</td></tr>`;
+    document.getElementById('blocked-cards').innerHTML = `<li class="px-4 py-10 text-center text-red-500">${message}</li>`;
+    document.getElementById('blocked-pager').replaceChildren();
+    updateBlockedSelection();
+    return;
+  }
+  if (blocked.page > data.total_pages) { blocked.page = data.total_pages; return loadBlocked(); }
+  blocked.all = data.blocked;
+  blocked.total = data.total;
+  renderBlocked();
+}
+
+function blockedCheckbox(row) {
+  return `<input type="checkbox" class="blocked-check shrink-0" value="${escapeHtml(row.ip)}" aria-label="${escapeHtml(row.ip)} 선택">`;
+}
+
+function blockedUnblockButton(row) {
+  return `<button type="button" class="blocked-unblock-one shrink-0 rounded-lg border border-gray-300 px-2.5 py-1 text-xs text-gray-600 hover:bg-gray-100 disabled:opacity-40" data-ip="${escapeHtml(row.ip)}">해제</button>`;
+}
+
+function renderBlocked() {
+  document.getElementById('blocked-total').textContent = `${blocked.total}개`;
+  paintSortHeaders(document.getElementById('blocked-head'), blocked);
+  const rows = blocked.all.map(row => ({
+    check: blockedCheckbox(row), ip: escapeHtml(row.ip), reason: escapeHtml(row.reason || '-'),
+    by: escapeHtml(row.blocked_by || '-'), at: escapeHtml(formatDateTime(row.blocked_at)),
+    unblock: blockedUnblockButton(row),
+  }));
+  const empty = '조건에 맞는 차단 IP가 없습니다.';
+  document.getElementById('blocked-rows').innerHTML = rows.length ? rows.map(r => `
+    <tr class="hover:bg-gray-50">
+      <td class="px-2 py-3">${r.check}</td>
+      <td class="px-4 py-3 font-mono truncate">${r.ip}</td>
+      <td class="px-4 py-3 truncate text-gray-600" title="${r.reason}">${r.reason}</td>
+      <td class="px-4 py-3 truncate text-gray-600">${r.by}</td>
+      <td class="px-4 py-3 text-gray-500 tabular-nums">${r.at}</td>
+      <td class="px-4 py-3 text-right">${r.unblock}</td>
+    </tr>`).join('') : `<tr><td colspan="6" class="px-5 py-10 text-center text-gray-400">${empty}</td></tr>`;
+  document.getElementById('blocked-cards').innerHTML = rows.length ? rows.map(r => `
+    <li class="px-4 py-3 space-y-1">
+      <div class="flex items-center gap-2">${r.check}<span class="min-w-0 flex-1 font-mono font-medium break-all">${r.ip}</span>${r.unblock}</div>
+      <p class="text-sm text-gray-600 break-words">${r.reason}</p>
+      <p class="text-xs text-gray-400">${r.by} · ${r.at}</p>
+    </li>`).join('') : `<li class="px-4 py-10 text-center text-gray-400">${empty}</li>`;
+  renderPager(document.getElementById('blocked-pager'), {
+    page: blocked.page, pageSize: blocked.pageSize, total: blocked.total,
+    onChange: page => { blocked.page = page; loadBlocked(); },
+  });
+  updateBlockedSelection();
+}
+
+function updateBlockedSelection() {
+  const all = document.getElementById('blocked-check-all');
+  const size = blockedSelected.size;
+  document.getElementById('blocked-selected-count').textContent = size;
+  document.getElementById('blocked-unblock-selected').disabled = !size || blockedBusy;
+  document.getElementById('blocked-unblock-all').disabled = blockedBusy;
+  document.getElementById('block-submit').disabled = blockedBusy;
+  all.checked = blocked.all.length > 0 && size === blocked.all.length;
+  all.indeterminate = size > 0 && size < blocked.all.length;
+  all.disabled = !blocked.all.length || blockedBusy;
+  document.querySelectorAll('.blocked-check').forEach(box => {
+    box.checked = blockedSelected.has(box.value);
+    box.disabled = blockedBusy;
+  });
+  document.querySelectorAll('.blocked-unblock-one').forEach(button => { button.disabled = blockedBusy; });
+}
+
+async function blockedPost(url, payload, confirmText) {
+  if (blockedBusy || (confirmText && !confirm(confirmText))) return false;
+  blockedBusy = true;
+  updateBlockedSelection();
+  let ok = false;
+  try {
+    const res = await fetch(url, { method: 'POST', headers: authHeaders({ 'Content-Type': 'application/json' }), body: JSON.stringify(payload) });
+    const data = await res.json().catch(() => ({}));
+    const notes = [['skipped', '이미 차단'], ['invalid', '형식 오류'], ['self_skipped', '내 IP 제외'], ['not_found', '목록에 없음']]
+      .filter(([key]) => data[key]?.length).map(([key, label]) => `${label} ${data[key].join(', ')}`);
+    flash((data.msg || '처리 실패') + (notes.length ? ' · ' + notes.join(' · ') : ''), res.ok);
+    ok = res.ok;
+  } catch (error) { flash('차단 IP 처리 요청에 실패했습니다.', false); }
+  blockedBusy = false;
+  if (ok) await loadBlocked(); else updateBlockedSelection();
+  return ok;
+}
+
+document.getElementById('block-submit').addEventListener('click', async () => {
+  const input = document.getElementById('block-ips');
+  const ips = input.value.split(/[\s,]+/).filter(Boolean);
+  if (!ips.length) { flash('차단할 IP를 입력하세요.', false); input.focus(); return; }
+  const reasonInput = document.getElementById('block-reason');
+  const payload = { ips, ...(reasonInput.value.trim() ? { reason: reasonInput.value.trim() } : {}) };
+  if (await blockedPost('/api/admin/blocked/block', payload, `IP ${ips.length}개를 차단할까요?`)) {
+    input.value = '';
+    reasonInput.value = '';
+  }
+});
+document.getElementById('blocked-unblock-selected').addEventListener('click', () => blockedPost(
+  '/api/admin/blocked/unblock', { ips: [...blockedSelected] }, `선택한 IP ${blockedSelected.size}개의 차단을 해제할까요?`));
+document.getElementById('blocked-unblock-all').addEventListener('click', () => blockedPost(
+  '/api/admin/blocked/unblock', { all: true, q: blocked.q },
+  blocked.q ? `검색어 "${blocked.q}"에 맞는 차단 IP 전부(다른 페이지 포함)를 해제할까요?` : '차단 IP 전부(다른 페이지 포함)를 해제할까요?'));
+document.querySelectorAll('#blocked-rows, #blocked-cards').forEach(container => {
+  container.addEventListener('change', event => {
+    if (!event.target.matches('.blocked-check')) return;
+    event.target.checked ? blockedSelected.add(event.target.value) : blockedSelected.delete(event.target.value);
+    updateBlockedSelection();
+  });
+  container.addEventListener('click', event => {
+    const button = event.target.closest('.blocked-unblock-one');
+    if (button) blockedPost('/api/admin/blocked/unblock', { ips: [button.dataset.ip] }, `${button.dataset.ip}의 차단을 해제할까요?`);
+  });
+});
+document.getElementById('blocked-check-all').addEventListener('change', event => {
+  blockedSelected.clear();
+  if (event.target.checked) blocked.all.forEach(row => blockedSelected.add(row.ip));
+  updateBlockedSelection();
+});
+document.getElementById('blocked-search').addEventListener('input',
+  debounce(event => { Object.assign(blocked, { q: event.target.value.trim(), page: 1 }); loadBlocked(); }));
+document.getElementById('blocked-page-size').addEventListener('change',
+  event => { Object.assign(blocked, { pageSize: Number(event.target.value), page: 1 }); loadBlocked(); });
+document.getElementById('blocked-refresh').addEventListener('click', loadBlocked);
+bindSortHeaders(document.getElementById('blocked-head'), blocked, loadBlocked);
+
 document.addEventListener('DOMContentLoaded', () => {
   loadUsers();
   loadViolations();
+  loadBlocked();
 });
 </script>
 </body>

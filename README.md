@@ -33,6 +33,7 @@ GitHub Free의 공개 저장소입니다. 조장 `myeongjundev`가 조직을 관
 - [팀원 PC Wazuh 수집 문제 검증 가이드](./flask-board/docs/WAZUH-LLM-VERIFICATION-GUIDE.md)
 - [10-12 최신 수업 적용·팀원 실행 및 검증 방법](./flask-board/docs/LESSON-UPDATES-20261012.md)
 - [10-13 회원 일괄 관리·티켓 종료·실행 및 검증 방법](./flask-board/docs/LESSON-UPDATES-20261013.md)
+- [10-14 차단 IP 검색·일괄 차단/해제·실행 및 검증 방법](./flask-board/docs/LESSON-UPDATES-20261014.md)
 - [10-12 전체 변경 현황·DB 연결 복구·Suricata 코드](docs/CHANGE-STATUS-20261012.md)
 
 ## 게시판 빠른 실행 — 협업 기능 확인용
@@ -73,6 +74,10 @@ $env:SECURITY_LOG_PATH = ''
 ```
 
 실제 검증 결과는 [검증 기록](docs/VERIFICATION.md)에 남깁니다.
+
+2026-10-14에 수업 저장소 최신 `fc5d09b`를 반영했습니다. 관리자 화면에 차단 IP 검색·페이징,
+여러 IP 일괄 차단(내 IP 제외), 선택·행별·검색 결과 전체 차단 해제를 추가했습니다.
+전체 pytest **181개**, unittest **110개**가 통과했습니다. 사용 방법은 [10-14 적용 기록](flask-board/docs/LESSON-UPDATES-20261014.md)을 참고하세요.
 
 2026-10-13 수업 저장소 `1aabb25`까지 개인 게시판과 비교한 최신 기능을 팀에도 반영했습니다.
 관리자 회원 검색·서버 페이징·선택 차단/해제/삭제, 대시보드 티켓 선택·전체 종료와

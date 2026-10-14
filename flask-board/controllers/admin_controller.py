@@ -1,4 +1,5 @@
 """관리자 전용 회원 관리 API."""
+import ipaddress
 from datetime import datetime, timedelta
 from functools import wraps
 
@@ -656,11 +657,106 @@ def unblock_ip():
     )
 
 
+# 관리자 화면 차단 IP 표 머리글의 data-sort와 같다. 동률 2차 정렬키는 기본키 ip.
+_BLOCKED_SORTS = {name: getattr(BlockedIP, name) for name in ("blocked_at", "ip", "blocked_by")}
+
+
+def _parse_ips(data):
+    """body의 ips를 앞뒤 공백 없앤·중복 없는 문자열 목록으로. 형식이 틀리면 None."""
+    ips = data.get("ips") if isinstance(data, dict) else None
+    if (isinstance(ips, list) and 0 < len(ips) <= _BULK_MAX
+            and all(isinstance(value, str) and value.strip() for value in ips)):
+        return list(dict.fromkeys(value.strip() for value in ips))
+    return None
+
+
+def _blocked_filters(query, source):
+    """목록·전체 해제가 같이 쓰는 검색. IP·사유·차단자 부분 일치."""
+    term = str(source.get("q") or "").strip()[:100]
+    if term:
+        query = query.filter(db.or_(
+            BlockedIP.ip.contains(term, autoescape=True),
+            BlockedIP.reason.contains(term, autoescape=True),
+            BlockedIP.blocked_by.contains(term, autoescape=True),
+        ))
+    return query
+
+
 @admin_bp.get("/blocked")
 @_admin_or_api_key_required
 def list_blocked_ips():
-    rows = BlockedIP.query.order_by(BlockedIP.blocked_at.desc()).all()
-    return jsonify({"count": len(rows), "blocked": [row.to_dict() for row in rows]})
+    """화면은 검색·서버 페이징, page/per_page 없는 n8n·스크립트 호출은 전체(최신 차단 먼저)."""
+    query = _blocked_filters(BlockedIP.query, request.args)
+    meta = {}
+    if "page" in request.args or "per_page" in request.args:
+        try:
+            rows, meta = paginate(query, request.args, _BLOCKED_SORTS, BlockedIP.ip, default_sort="blocked_at")
+        except SortError as error:
+            return jsonify({"msg": str(error)}), 400
+    else:
+        rows = query.order_by(BlockedIP.blocked_at.desc()).all()
+    return jsonify({"count": len(rows), **meta, "blocked": [row.to_dict() for row in rows]})
+
+
+@admin_bp.post("/blocked/block")
+@_admin_or_api_key_required
+def block_ips_bulk():
+    """IP 일괄 차단. 형식 오류는 invalid, 이미 차단은 skipped(처음 시각·사유 유지),
+    요청한 본인 IP는 self_skipped — 막으면 /admin·로그인이 그 자리에서 403이 된다.
+    전부 차단(all)은 제공하지 않는다. IP마다 admin-console 감사 이벤트를 남긴다."""
+    data = request.get_json(silent=True)
+    ips = _parse_ips(data)
+    if ips is None:
+        return jsonify({"msg": f"ips(IP 문자열 목록, 1~{_BULK_MAX}개)가 필요합니다."}), 400
+    valid, invalid = [], []
+    for raw in ips:
+        try:
+            valid.append(str(ipaddress.ip_address(raw)))  # IPv6 축약 등 표기 정규화
+        except ValueError:
+            invalid.append(raw)
+    valid = list(dict.fromkeys(valid))
+    me = request_src_ip()
+    existing = {row.ip for row in BlockedIP.query.filter(BlockedIP.ip.in_(valid))} if valid else set()
+    self_skipped = [ip for ip in valid if ip == me]
+    skipped = sorted(ip for ip in valid if ip in existing and ip != me)
+    targets = [ip for ip in valid if ip not in existing and ip != me]
+    actor = _security_actor()
+    reason = str(data.get("reason") or f"관리자 수동 차단 by {actor}")[:200]
+    for ip in targets:
+        db.session.add(BlockedIP(ip=ip, reason=reason, blocked_by=actor[:80]))
+        db.session.add(SecurityEvent(
+            student=actor[:50], src_ip=ip, fail_count=0, decision="deny", severity="Medium",
+            reason=f"관리자 IP 차단: {reason}"[:200], users="", source="admin-console",
+        ))
+    db.session.commit()
+    changed = sorted(targets)
+    return jsonify(msg=f"{len(changed)}개 IP 차단", count=len(changed), changed=changed,
+                   skipped=skipped, invalid=sorted(invalid), self_skipped=self_skipped,
+                   actor=actor)
+
+
+@admin_bp.post("/blocked/unblock")
+@_admin_or_api_key_required
+def unblock_ips_bulk():
+    """{ips:[..]} 선택 또는 {all:true, q?} 검색 조건의 차단 IP 전부(다른 페이지 포함) 해제.
+    예전에 형식 검사 없이 들어간 값도 지울 수 있게 IP 형식은 검사하지 않는다."""
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict):
+        return jsonify({"msg": "JSON 객체가 필요합니다."}), 400
+    if data.get("all") is True:
+        rows, not_found = _blocked_filters(BlockedIP.query, data).all(), []
+    else:
+        ips = _parse_ips(data)
+        if ips is None:
+            return jsonify({"msg": f"ips(IP 문자열 목록, 1~{_BULK_MAX}개) 또는 all: true가 필요합니다."}), 400
+        rows = BlockedIP.query.filter(BlockedIP.ip.in_(ips)).all()
+        not_found = sorted(set(ips) - {row.ip for row in rows})
+    changed = sorted(row.ip for row in rows)
+    for row in rows:
+        db.session.delete(row)
+    db.session.commit()
+    return jsonify(msg=f"{len(changed)}개 IP 차단 해제", count=len(changed), changed=changed,
+                   not_found=not_found, actor=_security_actor())
 
 
 _SEVERITY_RANK = {"Low": 1, "Medium": 2, "High": 3, "Critical": 4}
