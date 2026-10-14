@@ -130,12 +130,12 @@
       <thead id="member-head" class="bg-gray-50 text-gray-500 text-xs">
         <tr>
           <th class="w-10 px-2"><span class="sr-only">선택</span></th>
-          <th data-sort="username" class="w-40 text-left px-4 py-2.5 font-medium">회원</th>
+          <th data-sort="username" class="w-36 text-left px-4 py-2.5 font-medium">회원</th>
           <th data-sort="role" class="w-28 text-left px-2 py-2.5 font-medium">등급</th>
-          <th data-sort="is_locked" class="w-20 text-left px-2 py-2.5 font-medium">상태</th>
+          <th data-sort="is_locked" class="w-32 text-left px-2 py-2.5 font-medium">상태</th>
           <th class="w-16 text-right px-2 py-2.5 font-medium">게시글</th>
           <th class="text-left px-4 py-2.5 font-medium">최근 권한 변경</th>
-          <th class="w-[19rem] text-right px-4 py-2.5 font-medium">관리</th>
+          <th class="w-[22.5rem] text-right px-4 py-2.5 font-medium">관리</th>
         </tr>
       </thead>
       <tbody id="user-rows" class="divide-y divide-gray-100">
@@ -290,6 +290,16 @@ function memberActions(user) {
   const wrap = document.createElement('div');
   wrap.className = 'flex items-center justify-end gap-1.5';
 
+  // 잠긴 회원은 바로 해제, 정상 회원은 바로 차단. 본인·시스템 계정은 차단하지 않는다(서버도 본인은 건너뛴다).
+  const lockToggle = document.createElement('button');
+  lockToggle.className = user.is_locked
+    ? 'shrink-0 whitespace-nowrap px-2.5 py-1.5 rounded-lg text-sm font-semibold bg-emerald-600 text-white hover:bg-emerald-700'
+    : 'shrink-0 whitespace-nowrap px-2.5 py-1.5 rounded-lg text-sm border border-red-300 text-red-700 hover:bg-red-50 disabled:opacity-40 disabled:cursor-not-allowed';
+  lockToggle.textContent = user.is_locked ? '해제' : '차단';
+  lockToggle.disabled = !user.is_locked && (user.is_me || user.username === 'soarbot');
+  lockToggle.title = lockToggle.disabled ? '본인·시스템 계정은 차단할 수 없습니다.' : user.is_locked ? '잠금 해제·실패 횟수 초기화' : '로그인 차단';
+  lockToggle.addEventListener('click', () => bulkMembers(user.is_locked ? 'unlock' : 'lock', { ids: [user.id], label: `${user.username}님` }));
+
   const select = document.createElement('select');
   select.className = 'w-28 shrink-0 border border-gray-300 rounded-lg px-2 py-1.5 text-sm focus:ring-2 focus:ring-indigo-500';
   select.setAttribute('aria-label', `${user.username} 등급`);
@@ -319,7 +329,7 @@ function memberActions(user) {
   if (user.is_me) del.title = '자기 자신은 삭제할 수 없습니다.';
   del.addEventListener('click', () => deleteUser(user.id, user.username, user.post_count));
 
-  wrap.append(select, save, revoke, del);
+  wrap.append(lockToggle, select, save, revoke, del);
   return wrap;
 }
 
@@ -328,6 +338,14 @@ function memberName(user) {
     ${user.is_me ? '<span class="ml-1 text-xs text-indigo-500">(나)</span>' : ''}
     ${user.is_locked ? '<span class="ml-1 text-xs text-red-500" title="잠긴 계정">🔒</span>' : ''}
     <span class="ml-1 text-xs text-gray-400">#${user.id}</span>`;
+}
+
+function memberStatus(user) {
+  const failed = user.failed_logins ? `<span class="font-medium text-red-600"> · 실패 ${user.failed_logins}</span>` : '';
+  if (!user.is_locked) return `<div class="text-emerald-600">정상${failed}</div>`;
+  return `<div class="font-semibold text-red-600">차단됨${failed}</div>
+    <div class="truncate text-gray-400 tabular-nums">${escapeHtml(formatDateTime(user.locked_at))}</div>
+    <div class="truncate text-gray-500" title="${escapeHtml(user.lock_reason || '')}">${escapeHtml(user.lock_reason || '-')}</div>`;
 }
 
 function roleBadge(user) {
@@ -358,12 +376,12 @@ function renderMembers() {
 
   pageItems.forEach(user => {
     const tr = document.createElement('tr');
-    tr.className = user.is_me ? 'bg-indigo-50/40' : 'hover:bg-gray-50';
+    tr.className = user.is_me ? 'bg-indigo-50/40' : user.is_locked ? 'bg-red-50/70 hover:bg-red-50' : 'hover:bg-gray-50';
     tr.innerHTML = `
       <td class="px-2 py-3">${memberCheckbox(user)}</td>
       <td class="px-4 py-3 truncate">${memberName(user)}</td>
       <td class="px-2 py-3">${roleBadge(user)}</td>
-      <td class="px-2 py-3 text-xs ${user.is_locked ? 'text-red-600' : 'text-emerald-600'}">${user.is_locked ? '차단됨' : '정상'}</td>
+      <td class="px-2 py-3 text-xs">${memberStatus(user)}</td>
       <td class="px-2 py-3 text-right text-gray-500 tabular-nums">${user.post_count}</td>
       <td class="px-4 py-3">${grantInfo(user)}</td>
       <td class="px-4 py-3"></td>`;
@@ -371,13 +389,14 @@ function renderMembers() {
     tbody.appendChild(tr);
 
     const li = document.createElement('li');
-    li.className = `px-4 py-3 space-y-2 ${user.is_me ? 'bg-indigo-50/40' : ''}`;
+    li.className = `px-4 py-3 space-y-2 ${user.is_me ? 'bg-indigo-50/40' : user.is_locked ? 'bg-red-50/70' : ''}`;
     li.innerHTML = `
       <div class="flex items-center justify-between gap-2">
         ${memberCheckbox(user)}
         <div class="min-w-0 truncate">${memberName(user)}</div>
         ${roleBadge(user)}
       </div>
+      <div class="text-xs">${memberStatus(user)}</div>
       <div class="text-sm">${grantInfo(user)}</div>
       <p class="text-xs text-gray-400">게시글 ${user.post_count}건</p>`;
     const actions = memberActions(user);
@@ -418,12 +437,13 @@ function updateMemberSelection() {
   });
 }
 
-async function bulkMembers(action, allLocked = false) {
-  if (memberLoading || memberActionPending || (!allLocked && !memberSelected.size)) return;
+async function bulkMembers(action, { allLocked = false, ids = null, label = null } = {}) {
+  const targets = ids || [...memberSelected];   // ids: 행별 버튼, 없으면 체크한 회원
+  if (memberLoading || memberActionPending || (!allLocked && !targets.length)) return;
   const labels = { lock: '차단', unlock: '차단 해제', delete: '삭제' };
-  const scope = allLocked ? '검색·등급 조건에 맞는 차단 회원 전체(다른 페이지 포함)' : `선택한 회원 ${memberSelected.size}명`;
+  const scope = allLocked ? '검색·등급 조건에 맞는 차단 회원 전체(다른 페이지 포함)' : label || `선택한 회원 ${targets.length}명`;
   if (!confirm(`${scope}을 ${labels[action]}할까요?${action === 'delete' ? ' 해당 회원의 게시글도 함께 삭제됩니다.' : ''}`)) return;
-  const payload = allLocked ? { all_locked: true, q: members.q, role: members.role } : { ids: [...memberSelected] };
+  const payload = allLocked ? { all_locked: true, q: members.q, role: members.role } : { ids: targets };
   memberActionPending = true;
   updateMemberSelection();
   try {
@@ -575,7 +595,7 @@ document.getElementById('member-check-all').addEventListener('change', event => 
 for (const action of ['lock', 'unlock', 'delete']) {
   document.getElementById(`member-${action}-selected`).addEventListener('click', () => bulkMembers(action));
 }
-document.getElementById('member-unlock-all').addEventListener('click', () => bulkMembers('unlock', true));
+document.getElementById('member-unlock-all').addEventListener('click', () => bulkMembers('unlock', { allLocked: true }));
 bindSortHeaders(document.getElementById('member-head'), members, loadUsers);
 
 // ── 차단 IP 표: 회원 표와 같은 서버 페이징·선택 규칙. 키는 IP 문자열. ──
